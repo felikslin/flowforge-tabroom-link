@@ -6,7 +6,6 @@ async function callTabroom<T = unknown>(
   action: string,
   body: Record<string, unknown>
 ): Promise<T> {
-  // Append action to the function path
   const { data, error } = await supabase.functions.invoke(
     `${FUNCTION_NAME}/${action}`,
     { body }
@@ -27,27 +26,23 @@ async function callTabroom<T = unknown>(
 
 export interface TabroomSession {
   success: boolean;
-  person_id: string;
+  token: string;
+  person_id: string | null;
   name: string;
   email: string;
-  session: string;
-  raw?: unknown;
 }
 
 export interface TabroomTournament {
   id: string;
   name: string;
-  start?: string;
-  end?: string;
-  location?: string;
   [key: string]: unknown;
 }
 
 export interface TabroomPairing {
-  room?: string;
-  aff?: string;
-  neg?: string;
-  judge?: string;
+  room: string;
+  aff: string;
+  neg: string;
+  judge: string;
   [key: string]: unknown;
 }
 
@@ -55,7 +50,7 @@ export interface TabroomJudgeInfo {
   judge_id?: string;
   name: string;
   paradigm: string | null;
-  raw_html?: string;
+  html_preview?: string;
 }
 
 // ─── API Functions ───────────────────────────────────────
@@ -68,23 +63,19 @@ export async function tabroomLogin(
 }
 
 export async function tabroomGetMyTournaments(
-  session: string,
-  personId: string
-): Promise<TabroomTournament[]> {
-  return callTabroom<TabroomTournament[]>("my-tournaments", {
-    session,
-    person_id: personId,
-  });
+  token: string
+): Promise<{ tournaments: TabroomTournament[]; total: number }> {
+  return callTabroom("my-tournaments", { token });
 }
 
 export async function tabroomGetPairings(
-  session: string,
+  token: string,
   tournId: string,
   eventId?: string,
   roundId?: string
-): Promise<TabroomPairing[]> {
-  return callTabroom<TabroomPairing[]>("pairings", {
-    session,
+): Promise<{ pairings: TabroomPairing[]; total: number }> {
+  return callTabroom("pairings", {
+    token,
     tourn_id: tournId,
     event_id: eventId,
     round_id: roundId,
@@ -102,12 +93,12 @@ export async function tabroomGetJudge(
 }
 
 export async function tabroomGetBallots(
-  session: string,
+  token: string,
   tournId: string,
   entryId?: string
 ) {
   return callTabroom("ballots", {
-    session,
+    token,
     tourn_id: tournId,
     entry_id: entryId,
   });

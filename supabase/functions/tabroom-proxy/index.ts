@@ -6,7 +6,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const TABROOM_API = "https://api.tabroom.com/v1";
 const TABROOM_WEB = "https://www.tabroom.com";
 
 function json(data: unknown, status = 200) {
@@ -20,205 +19,243 @@ function err(msg: string, status = 400) {
   return json({ error: msg }, status);
 }
 
+// Helper: make authenticated request to Tabroom with cookie
+async function tabroomFetch(path: string, token: string, options: RequestInit = {}) {
+  const url = path.startsWith("http") ? path : `${TABROOM_WEB}${path}`;
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      Cookie: `TabroomToken=${token}`,
+      ...(options.headers || {}),
+    },
+    redirect: "manual",
+  });
+  return res;
+}
+
 // ─── LOGIN ───────────────────────────────────────────────
-// Authenticates against Tabroom's internal API and returns session info
+// Tabroom's login endpoint: POST /user/login/login_save.mhtml
+// On success: 302 redirect with TabroomToken cookie set
+// On failure: 302 redirect to error page with empty/expired cookie
 async function handleLogin(body: { email: string; password: string }) {
   if (!body.email || !body.password) {
     return err("Email and password are required");
   }
 
   try {
-    // Tabroom uses a POST to /v1/login with form data
-    const res = await fetch(`${TABROOM_API}/login`, {
+    const res = await fetch(`${TABROOM_WEB}/user/login/login_save.mhtml`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: body.email,
-        password: body.password,
-      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `username=${encodeURIComponent(body.email)}&password=${encodeURIComponent(body.password)}`,
+      redirect: "manual",
     });
 
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("Tabroom login failed:", res.status, text);
-      return err("Invalid Tabroom credentials", 401);
+    const setCookie = res.headers.get("set-cookie") || "";
+    const location = res.headers.get("location") || "";
+    const responseText = await res.text();
+
+    console.log("Login response:", res.status, "Location:", location);
+    console.log("Set-Cookie:", setCookie);
+
+    // Extract the TabroomToken from the cookie
+    const tokenMatch = setCookie.match(/TabroomToken=([^;]+)/);
+    const token = tokenMatch?.[1] || null;
+
+    // Check if login failed: redirect contains "err=" or token is empty
+    if (location.includes("err=") || !token || token === "") {
+      const errMsg = decodeURIComponent(
+        location.match(/err=([^&]*)/)?.[1] || "Invalid credentials"
+      );
+      return json({ error: errMsg, success: false }, 401);
     }
 
-    const data = await res.json();
+    // Login succeeded — now fetch user info from the home/dashboard page
+    // The token gives us access to the user's data
+    let personInfo: Record<string, unknown> = {};
+    try {
+      const dashRes = await tabroomFetch("/index/index.mhtml", token);
+      const dashHtml = await dashRes.text();
 
-    // Extract session cookie from response headers
-    const setCookie = res.headers.get("set-cookie") || "";
-    const sessionMatch = setCookie.match(/tabroom_session=([^;]+)/);
-    const sessionId = sessionMatch?.[1] || data?.session || null;
+      // Try to extract person_id and name from the dashboard HTML
+      const personIdMatch = dashHtml.match(/person_id[=:]\s*["']?(\d+)/);
+      const nameMatch = dashHtml.match(/Welcome[,\s]+([^<]+)/i) ||
+        dashHtml.match(/class="[^"]*username[^"]*"[^>]*>([^<]+)/i);
+
+      personInfo = {
+        person_id: personIdMatch?.[1] || null,
+        name: nameMatch?.[1]?.trim() || null,
+      };
+    } catch (e) {
+      console.log("Could not fetch dashboard info:", e.message);
+    }
 
     return json({
       success: true,
-      person_id: data?.person_id || data?.id,
-      name: data?.first || data?.name,
+      token,
+      person_id: personInfo.person_id || null,
+      name: personInfo.name || body.email.split("@")[0],
       email: body.email,
-      session: sessionId,
-      // Pass through any other useful data Tabroom returns
-      raw: data,
     });
   } catch (e) {
     console.error("Login error:", e);
-    return err("Failed to connect to Tabroom", 502);
+    return err(`Failed to connect to Tabroom: ${e.message}`, 502);
   }
 }
 
 // ─── MY TOURNAMENTS ──────────────────────────────────────
-// Fetches the logged-in user's tournament entries
-async function handleMyTournaments(body: {
-  session: string;
-  person_id: string;
-}) {
-  if (!body.session || !body.person_id) {
-    return err("Session and person_id are required");
-  }
+// Scrapes the user's tournament entries from their Tabroom dashboard
+async function handleMyTournaments(body: { token: string }) {
+  if (!body.token) return err("Token is required");
 
   try {
-    const res = await fetch(
-      `${TABROOM_API}/user/${body.person_id}/tournaments`,
-      {
-        headers: {
-          Cookie: `tabroom_session=${body.session}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const res = await tabroomFetch("/user/student/index.mhtml", body.token);
+    const html = await res.text();
 
-    if (!res.ok) {
-      return err("Failed to fetch tournaments", res.status);
+    // Parse tournament entries from the HTML
+    const tournaments: Array<Record<string, string | null>> = [];
+    const tournRegex = /tourn_id=(\d+)[^>]*>([^<]+)/g;
+    let match;
+    while ((match = tournRegex.exec(html)) !== null) {
+      tournaments.push({
+        id: match[1],
+        name: match[2].trim(),
+      });
     }
 
-    const data = await res.json();
-    return json(data);
+    // Also try to get more structured data if available
+    const tableRows = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [];
+
+    return json({
+      tournaments,
+      total: tournaments.length,
+      html_preview: html.substring(0, 3000),
+    });
   } catch (e) {
     console.error("Tournaments error:", e);
-    return err("Failed to fetch tournaments", 502);
+    return err(`Failed to fetch tournaments: ${e.message}`, 502);
   }
 }
 
 // ─── PAIRINGS ────────────────────────────────────────────
-// Fetches pairings for a specific tournament round
+// Scrapes pairings for a specific tournament
 async function handlePairings(body: {
-  session: string;
+  token: string;
   tourn_id: string;
   event_id?: string;
   round_id?: string;
 }) {
-  if (!body.session || !body.tourn_id) {
-    return err("Session and tourn_id are required");
+  if (!body.token || !body.tourn_id) {
+    return err("Token and tourn_id are required");
   }
 
   try {
-    let url = `${TABROOM_API}/tourn/${body.tourn_id}/pairings`;
-    const params = new URLSearchParams();
-    if (body.event_id) params.set("event_id", body.event_id);
-    if (body.round_id) params.set("round_id", body.round_id);
-    if (params.toString()) url += `?${params}`;
+    let path = `/index/tourn/postings/index.mhtml?tourn_id=${body.tourn_id}`;
+    if (body.event_id) path += `&event_id=${body.event_id}`;
+    if (body.round_id) path += `&round_id=${body.round_id}`;
 
-    const res = await fetch(url, {
-      headers: {
-        Cookie: `tabroom_session=${body.session}`,
-        "Content-Type": "application/json",
-      },
-    });
+    const res = await tabroomFetch(path, body.token);
+    const html = await res.text();
 
-    if (!res.ok) {
-      return err("Failed to fetch pairings", res.status);
+    // Parse pairings table
+    const pairings: Array<Record<string, string>> = [];
+    const rowRegex = /<tr[^>]*class="[^"]*row[^"]*"[^>]*>([\s\S]*?)<\/tr>/g;
+    let match;
+    while ((match = rowRegex.exec(html)) !== null) {
+      const cells = match[1].match(/<td[^>]*>([\s\S]*?)<\/td>/g) || [];
+      const cellText = cells.map((c: string) =>
+        c.replace(/<[^>]+>/g, "").trim()
+      );
+      if (cellText.length >= 3) {
+        pairings.push({
+          room: cellText[0] || "",
+          aff: cellText[1] || "",
+          neg: cellText[2] || "",
+          judge: cellText[3] || "",
+        });
+      }
     }
 
-    const data = await res.json();
-    return json(data);
+    return json({
+      pairings,
+      total: pairings.length,
+      html_preview: html.substring(0, 3000),
+    });
   } catch (e) {
     console.error("Pairings error:", e);
-    return err("Failed to fetch pairings", 502);
+    return err(`Failed to fetch pairings: ${e.message}`, 502);
   }
 }
 
-// ─── JUDGE PARADIGM (public scraping) ────────────────────
-// Scrapes judge paradigm from public Tabroom page
+// ─── JUDGE PARADIGM (public — no auth needed) ────────────
 async function handleJudge(body: { judge_id?: string; judge_name?: string }) {
   if (!body.judge_id && !body.judge_name) {
     return err("judge_id or judge_name is required");
   }
 
   try {
-    let url: string;
     if (body.judge_id) {
-      url = `${TABROOM_WEB}/index/paradigm.mhtml?judge_person_id=${body.judge_id}`;
-    } else {
-      // Search by name via tournaments.tech
-      url = `https://tournaments.tech/query?format=LD&term=${encodeURIComponent(
-        body.judge_name!
-      )}`;
-    }
+      const res = await fetch(
+        `${TABROOM_WEB}/index/paradigm.mhtml?judge_person_id=${body.judge_id}`
+      );
+      const html = await res.text();
 
-    const res = await fetch(url);
-    const text = await res.text();
-
-    // For paradigm pages, extract the paradigm text
-    if (body.judge_id) {
-      // Basic HTML parsing to extract paradigm content
-      const paradigmMatch = text.match(
+      // Extract paradigm text
+      const paradigmMatch = html.match(
         /class="paradigm[^"]*"[^>]*>([\s\S]*?)<\/div>/
       );
-      const nameMatch = text.match(
-        /<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/
-      );
+      const nameMatch = html.match(/<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/);
 
       return json({
         judge_id: body.judge_id,
         name: nameMatch?.[1]?.replace(/<[^>]+>/g, "").trim() || "Unknown",
-        paradigm: paradigmMatch?.[1]?.replace(/<[^>]+>/g, "").trim() || null,
-        raw_html: text.substring(0, 5000), // First 5KB for client-side parsing
+        paradigm:
+          paradigmMatch?.[1]?.replace(/<[^>]+>/g, "").trim() || null,
+        html_preview: html.substring(0, 5000),
       });
     }
 
-    // For tournaments.tech query, return JSON directly
+    // Search by name via tournaments.tech
+    const res = await fetch(
+      `https://tournaments.tech/query?format=LD&term=${encodeURIComponent(
+        body.judge_name!
+      )}`
+    );
+    const text = await res.text();
     try {
-      const data = JSON.parse(text);
-      return json(data);
+      return json(JSON.parse(text));
     } catch {
       return json({ results: [], raw: text.substring(0, 2000) });
     }
   } catch (e) {
     console.error("Judge error:", e);
-    return err("Failed to fetch judge info", 502);
+    return err(`Failed to fetch judge info: ${e.message}`, 502);
   }
 }
 
 // ─── BALLOTS ─────────────────────────────────────────────
 async function handleBallots(body: {
-  session: string;
+  token: string;
   tourn_id: string;
   entry_id?: string;
 }) {
-  if (!body.session || !body.tourn_id) {
-    return err("Session and tourn_id are required");
+  if (!body.token || !body.tourn_id) {
+    return err("Token and tourn_id are required");
   }
 
   try {
-    let url = `${TABROOM_API}/tourn/${body.tourn_id}/ballots`;
-    if (body.entry_id) url += `?entry_id=${body.entry_id}`;
+    let path = `/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}`;
+    if (body.entry_id) path += `&entry_id=${body.entry_id}`;
 
-    const res = await fetch(url, {
-      headers: {
-        Cookie: `tabroom_session=${body.session}`,
-        "Content-Type": "application/json",
-      },
+    const res = await tabroomFetch(path, body.token);
+    const html = await res.text();
+
+    return json({
+      html_preview: html.substring(0, 5000),
+      note: "Parse ballot data from html_preview on the client side for maximum flexibility",
     });
-
-    if (!res.ok) {
-      return err("Failed to fetch ballots", res.status);
-    }
-
-    const data = await res.json();
-    return json(data);
   } catch (e) {
     console.error("Ballots error:", e);
-    return err("Failed to fetch ballots", 502);
+    return err(`Failed to fetch ballots: ${e.message}`, 502);
   }
 }
 
@@ -229,7 +266,7 @@ serve(async (req) => {
   }
 
   const url = new URL(req.url);
-  const path = url.pathname.split("/").pop(); // Get last segment
+  const path = url.pathname.split("/").pop();
 
   if (req.method !== "POST") {
     return err("Only POST requests are supported", 405);
@@ -246,34 +283,26 @@ serve(async (req) => {
     case "login":
       return handleLogin(body as { email: string; password: string });
     case "my-tournaments":
-      return handleMyTournaments(
-        body as { session: string; person_id: string }
-      );
+      return handleMyTournaments(body as { token: string });
     case "pairings":
       return handlePairings(
-        body as {
-          session: string;
-          tourn_id: string;
-          event_id?: string;
-          round_id?: string;
-        }
+        body as { token: string; tourn_id: string; event_id?: string; round_id?: string }
       );
     case "judge":
-      return handleJudge(
-        body as { judge_id?: string; judge_name?: string }
-      );
+      return handleJudge(body as { judge_id?: string; judge_name?: string });
     case "ballots":
       return handleBallots(
-        body as { session: string; tourn_id: string; entry_id?: string }
+        body as { token: string; tourn_id: string; entry_id?: string }
       );
     default:
       return json({
+        service: "Flow × Tabroom Proxy",
         endpoints: [
-          "POST /login — { email, password }",
-          "POST /my-tournaments — { session, person_id }",
-          "POST /pairings — { session, tourn_id, event_id?, round_id? }",
-          "POST /judge — { judge_id? | judge_name? }",
-          "POST /ballots — { session, tourn_id, entry_id? }",
+          "POST /login — { email, password } → { success, token, person_id, name }",
+          "POST /my-tournaments — { token } → { tournaments[] }",
+          "POST /pairings — { token, tourn_id, event_id?, round_id? } → { pairings[] }",
+          "POST /judge — { judge_id? | judge_name? } → { name, paradigm } (public, no auth)",
+          "POST /ballots — { token, tourn_id, entry_id? } → { html_preview }",
         ],
       });
   }
