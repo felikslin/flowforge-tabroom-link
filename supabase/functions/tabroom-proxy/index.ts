@@ -214,18 +214,61 @@ async function handleJudge(body: { judge_id?: string; judge_name?: string }) {
       });
     }
 
-    // Search by name via tournaments.tech
-    const res = await fetch(
-      `https://tournaments.tech/query?format=LD&term=${encodeURIComponent(
-        body.judge_name!
+    // Try tournaments.tech first, fall back to Tabroom search
+    try {
+      const res = await fetch(
+        `https://tournaments.tech/query?format=LD&term=${encodeURIComponent(body.judge_name!)}`,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      const text = await res.text();
+      try {
+        return json(JSON.parse(text));
+      } catch {
+        return json({ results: [], raw: text.substring(0, 2000) });
+      }
+    } catch (ttErr) {
+      console.log("tournaments.tech unavailable, falling back to Tabroom search:", ttErr.message);
+    }
+
+    // Fallback: search Tabroom directly for the judge name
+    const searchRes = await fetch(
+      `${TABROOM_WEB}/index/paradigm.mhtml?search_first=${encodeURIComponent(
+        body.judge_name!.split(" ")[0] || ""
+      )}&search_last=${encodeURIComponent(
+        body.judge_name!.split(" ").slice(1).join(" ") || body.judge_name!
       )}`
     );
-    const text = await res.text();
-    try {
-      return json(JSON.parse(text));
-    } catch {
-      return json({ results: [], raw: text.substring(0, 2000) });
+    const searchHtml = await searchRes.text();
+
+    // Extract judge links from search results
+    const judgeResults: Array<Record<string, string | null>> = [];
+    const linkRegex = /judge_person_id=(\d+)[^>]*>([^<]+)/g;
+    let m;
+    while ((m = linkRegex.exec(searchHtml)) !== null) {
+      judgeResults.push({ judge_id: m[1], name: m[2].trim() });
     }
+
+    // If exactly one result, fetch their paradigm directly
+    if (judgeResults.length === 1) {
+      const pRes = await fetch(
+        `${TABROOM_WEB}/index/paradigm.mhtml?judge_person_id=${judgeResults[0].judge_id}`
+      );
+      const pHtml = await pRes.text();
+      const paradigmMatch = pHtml.match(/class="paradigm[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+      return json({
+        judge_id: judgeResults[0].judge_id,
+        name: judgeResults[0].name,
+        paradigm: paradigmMatch?.[1]?.replace(/<[^>]+>/g, "").trim() || null,
+        source: "tabroom_fallback",
+      });
+    }
+
+    return json({
+      results: judgeResults,
+      total: judgeResults.length,
+      source: "tabroom_fallback",
+      html_preview: searchHtml.substring(0, 3000),
+    });
   } catch (e) {
     console.error("Judge error:", e);
     return err(`Failed to fetch judge info: ${e.message}`, 502);
