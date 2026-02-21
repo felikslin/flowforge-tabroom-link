@@ -8,6 +8,7 @@ import {
   type TabroomTournament,
   type TabroomPairing,
   type TabroomJudgeInfo,
+  type TabroomCoinFlip,
 } from "@/lib/tabroom-api";
 
 interface TabroomState {
@@ -15,6 +16,7 @@ interface TabroomState {
   tournaments: TabroomTournament[];
   selectedTournament: TabroomTournament | null;
   pairings: TabroomPairing[];
+  coinFlip: TabroomCoinFlip | null;
   ballots: { html_preview?: string } | null;
   judgeInfo: TabroomJudgeInfo | null;
   loading: {
@@ -52,6 +54,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
   const [tournaments, setTournaments] = useState<TabroomTournament[]>([]);
   const [selectedTournament, setSelectedTournament] = useState<TabroomTournament | null>(null);
   const [pairings, setPairings] = useState<TabroomPairing[]>([]);
+  const [coinFlip, setCoinFlip] = useState<TabroomCoinFlip | null>(null);
   const [ballots, setBallots] = useState<{ html_preview?: string } | null>(null);
   const [judgeInfo, setJudgeInfo] = useState<TabroomJudgeInfo | null>(null);
   const [htmlPreviews, setHtmlPreviews] = useState<Record<string, string>>({});
@@ -106,6 +109,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     try {
       const res = await tabroomGetPairings(user.token, selectedTournament.id);
       setPairings(res.pairings || []);
+      setCoinFlip(res.coin_flip || null);
       setHtmlPreviews((h) => ({ ...h, pairings: (res as any).html_preview }));
     } catch (err: any) {
       setErrors((e) => ({ ...e, pairings: err.message }));
@@ -158,6 +162,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
         tournaments,
         selectedTournament,
         pairings,
+        coinFlip,
         ballots,
         judgeInfo,
         loading,

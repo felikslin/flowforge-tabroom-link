@@ -137,7 +137,7 @@ async function handleMyTournaments(body: { token: string }) {
 }
 
 // ─── PAIRINGS ────────────────────────────────────────────
-// Scrapes pairings for a specific tournament
+// Scrapes pairings for a specific tournament, including coin flip data
 async function handlePairings(body: {
   token: string;
   tourn_id: string;
@@ -175,10 +175,83 @@ async function handlePairings(body: {
       }
     }
 
+    // ─── Detect coin flip / side lock data ───
+    // Tabroom shows coin flip info in various ways:
+    // - "Flip for sides" or "coin flip" text
+    // - A countdown timer element
+    // - Side lock deadline timestamps
+    // - "flip_deadline" or "side_lock" fields
+    const coinFlip: Record<string, unknown> = { available: false };
+
+    const htmlLower = html.toLowerCase();
+    const hasFlip =
+      htmlLower.includes("coin flip") ||
+      htmlLower.includes("flip for sides") ||
+      htmlLower.includes("side_lock") ||
+      htmlLower.includes("flip_deadline") ||
+      htmlLower.includes("digital flip") ||
+      htmlLower.includes("fliponline") ||
+      htmlLower.includes("sidelock");
+
+    if (hasFlip) {
+      coinFlip.available = true;
+
+      // Try to extract deadline/timer
+      // Pattern: deadline timestamp like "2025-01-15T10:30:00" or "10:30 AM"
+      const deadlineMatch = html.match(
+        /(?:flip_deadline|side_lock|deadline)[^"]*["']?\s*[:=]\s*["']?([^"'<>\n]+)/i
+      );
+      if (deadlineMatch) {
+        coinFlip.deadline = deadlineMatch[1].trim();
+      }
+
+      // Pattern: countdown seconds remaining
+      const countdownMatch = html.match(
+        /(?:countdown|timer|seconds?_remaining|time_left)[^"]*["']?\s*[:=]\s*["']?(\d+)/i
+      );
+      if (countdownMatch) {
+        coinFlip.countdown_seconds = parseInt(countdownMatch[1]);
+      }
+
+      // Pattern: duration in minutes
+      const durationMatch = html.match(
+        /(?:flip.*?(\d+)\s*min|(\d+)\s*min.*?flip)/i
+      );
+      if (durationMatch) {
+        coinFlip.duration_minutes = parseInt(durationMatch[1] || durationMatch[2]);
+      }
+
+      // Detect flip status: pending, active, completed
+      if (htmlLower.includes("flip complete") || htmlLower.includes("sides locked")) {
+        coinFlip.status = "completed";
+      } else if (htmlLower.includes("flip in progress") || htmlLower.includes("flip now") || countdownMatch) {
+        coinFlip.status = "active";
+      } else {
+        coinFlip.status = "pending";
+      }
+
+      // Try to extract the user's flip result (which side they got)
+      const sideResultMatch = html.match(
+        /(?:your side|you are|assigned)[^<]*?(AFF|NEG|Aff|Neg|aff|neg)/i
+      );
+      if (sideResultMatch) {
+        coinFlip.assigned_side = sideResultMatch[1].toUpperCase();
+      }
+
+      // Extract who has the flip (which entry calls)
+      const callerMatch = html.match(
+        /(?:flip.*?caller|caller)[^<]*?([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)/i
+      );
+      if (callerMatch) {
+        coinFlip.caller = callerMatch[1].trim();
+      }
+    }
+
     return json({
       pairings,
       total: pairings.length,
-      html_preview: html.substring(0, 3000),
+      coin_flip: coinFlip,
+      html_preview: html.substring(0, 5000),
     });
   } catch (e) {
     console.error("Pairings error:", e);
