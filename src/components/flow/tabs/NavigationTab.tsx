@@ -19,16 +19,11 @@ interface VenueMap {
 // Demo venue map data — in production this would come from a DB/storage
 const DEMO_VENUES: VenueMap[] = [
   {
-    id: "demo-1",
-    name: "Harvard Science Center",
-    floor: "1st Floor",
+    id: "default",
+    name: "Venue",
+    floor: "Floor 1",
     imageUrl: "",
-    rooms: [
-      { id: "r1", label: "Room 107", x: 25, y: 40 },
-      { id: "r2", label: "Room 105", x: 55, y: 35 },
-      { id: "r3", label: "Room 201", x: 40, y: 60 },
-      { id: "r4", label: "Lobby", x: 50, y: 85 },
-    ],
+    rooms: [],
   },
 ];
 
