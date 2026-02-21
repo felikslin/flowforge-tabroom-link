@@ -16,7 +16,7 @@ function json(data: unknown, status = 200) {
 const TYPE_MAP: Record<string, string[]> = {
   food: ["restaurant", "meal_delivery", "meal_takeaway", "bakery"],
   cafe: ["cafe", "coffee_shop"],
-  store: ["convenience_store", "pharmacy", "book_store", "grocery_or_supermarket"],
+  store: ["convenience_store", "pharmacy", "book_store", "supermarket"],
 };
 
 const ICON_MAP: Record<string, string> = {
@@ -29,7 +29,7 @@ const ICON_MAP: Record<string, string> = {
   convenience_store: "🏪",
   pharmacy: "💊",
   book_store: "📚",
-  grocery_or_supermarket: "🛒",
+  supermarket: "🛒",
 };
 
 serve(async (req) => {
