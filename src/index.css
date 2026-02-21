@@ -1,96 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Fraunces:ital,opsz,wght@0,9..144,200;0,9..144,400;0,9..144,600;1,9..144,200;1,9..144,300&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Flow Design System */
+    --background: 36 30% 94%;       /* #F5F2EC */
+    --foreground: 42 30% 9%;        /* #18160F */
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;              /* #FFFFFF */
+    --card-foreground: 42 30% 9%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 42 30% 9%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 153 37% 26%;         /* #2A5C45 */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 36 20% 92%;        /* #EFECE5 */
+    --secondary-foreground: 42 30% 9%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 36 20% 92%;
+    --muted-foreground: 30 10% 47%; /* #8A8070 */
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 153 37% 26%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 16 65% 47%;      /* #C4512A */
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 34 16% 86%;           /* #E0DBD2 */
+    --input: 34 16% 86%;
+    --ring: 153 37% 26%;
 
-    --radius: 0.5rem;
+    --radius: 0.625rem;             /* 10px */
 
-    --sidebar-background: 0 0% 98%;
+    /* Flow-specific tokens */
+    --flow-accent-light: 150 38% 93%;   /* #E6F2EC */
+    --flow-warn: 16 65% 47%;            /* #C4512A */
+    --flow-warn-light: 18 90% 96%;      /* #FDF0EA */
+    --flow-gold: 37 63% 42%;            /* #B07D2A */
+    --flow-gold-light: 42 82% 95%;      /* #FBF5E6 */
+    --flow-surface2: 36 20% 92%;        /* #EFECE5 */
+    --flow-login-bg: 40 30% 4%;         /* #111009 */
+    --flow-green-bright: 142 69% 58%;   /* #4ade80 */
 
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 42 30% 9%;
+    --sidebar-primary: 153 37% 26%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 150 38% 93%;
+    --sidebar-accent-foreground: 153 37% 26%;
+    --sidebar-border: 34 16% 86%;
+    --sidebar-ring: 153 37% 26%;
   }
 }
 
@@ -101,5 +65,99 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+  }
+
+  html, body, #root {
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
+/* Flow utility classes */
+@layer components {
+  .flow-serif {
+    font-family: 'Fraunces', serif;
+  }
+
+  .flow-mono {
+    font-family: 'DM Mono', monospace;
+  }
+
+  .flow-shadow {
+    box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.06);
+  }
+
+  .flow-card {
+    @apply bg-card border border-border rounded-[var(--radius)] p-4 flow-shadow;
+  }
+
+  .flow-badge {
+    @apply text-[10px] font-medium px-2 py-0.5 rounded-full;
+  }
+
+  .flow-label {
+    @apply text-[9.5px] uppercase tracking-[1px] text-muted-foreground font-medium;
+  }
+
+  /* Login animations */
+  @keyframes loginrise {
+    from { opacity: 0; transform: translateY(24px) scale(.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  @keyframes float-pin {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+
+  @keyframes glow-dot {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(196,81,42,.3); }
+    50% { box-shadow: 0 0 0 5px rgba(196,81,42,0); }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes fadein {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-loginrise {
+    animation: loginrise .6s cubic-bezier(.22,1,.36,1) both;
+  }
+
+  .animate-shake {
+    animation: shake .3s ease;
+  }
+
+  .animate-pulse-dot {
+    animation: pulse-dot 1.6s ease-in-out infinite;
+  }
+
+  .animate-float {
+    animation: float-pin 2.2s ease-in-out infinite;
+  }
+
+  .animate-glow {
+    animation: glow-dot 1.5s ease-in-out infinite;
+  }
+
+  .animate-fadein {
+    animation: fadein .2s ease;
   }
 }
