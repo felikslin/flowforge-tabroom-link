@@ -5,7 +5,6 @@ import { useToast } from "@/hooks/use-toast";
 type TimerState = "idle" | "running" | "paused";
 
 const WARNINGS = [
-  { at: 5 * 60, label: "5 min — Coin flip starts" },
   { at: 4 * 60, label: "4 min remaining" },
   { at: 3 * 60, label: "3 min remaining" },
   { at: 2 * 60, label: "2 min remaining" },
@@ -20,18 +19,54 @@ function formatTime(s: number) {
 }
 
 export function PairingsTab() {
-  const { pairings, loading, errors, selectedTournament, refreshPairings, htmlPreviews } = useTabroom();
+  const { pairings, coinFlip, loading, errors, selectedTournament, refreshPairings, htmlPreviews } = useTabroom();
   const { toast } = useToast();
 
   // Coin flip timer
-  const [timerDuration, setTimerDuration] = useState(5 * 60); // default 5 min
+  const [timerDuration, setTimerDuration] = useState(5 * 60);
   const [timeLeft, setTimeLeft] = useState(timerDuration);
   const [timerState, setTimerState] = useState<TimerState>("idle");
   const [firedWarnings, setFiredWarnings] = useState<Set<number>>(new Set());
+  const [manualMode, setManualMode] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
 
-  // Play a beep sound
+  // When coin flip data arrives, auto-configure the timer
+  useEffect(() => {
+    if (!coinFlip?.available) return;
+
+    // Set duration from Tabroom data
+    if (coinFlip.countdown_seconds && coinFlip.countdown_seconds > 0) {
+      setTimerDuration(coinFlip.countdown_seconds);
+      setTimeLeft(coinFlip.countdown_seconds);
+      // Auto-start if flip is active
+      if (coinFlip.status === "active" && timerState === "idle") {
+        startTimerInternal(coinFlip.countdown_seconds);
+      }
+    } else if (coinFlip.duration_minutes) {
+      const secs = coinFlip.duration_minutes * 60;
+      setTimerDuration(secs);
+      setTimeLeft(secs);
+    }
+
+    // Show notification about coin flip
+    if (coinFlip.status === "active") {
+      toast({
+        title: "🪙 Digital Coin Flip Active!",
+        description: coinFlip.caller
+          ? `${coinFlip.caller} is calling the flip.`
+          : "A coin flip is in progress for this round.",
+      });
+    }
+
+    if (coinFlip.assigned_side) {
+      toast({
+        title: `🪙 Side Assigned: ${coinFlip.assigned_side}`,
+        description: `You have been assigned the ${coinFlip.assigned_side} side.`,
+      });
+    }
+  }, [coinFlip]);
+
   const playBeep = useCallback((frequency = 660, duration = 200) => {
     try {
       if (!audioRef.current) audioRef.current = new AudioContext();
@@ -70,7 +105,6 @@ export function PairingsTab() {
 
         playBeep(isTimeUp ? 880 : isUrgent ? 770 : 660, isTimeUp ? 500 : 200);
 
-        // Browser notification
         if (Notification.permission === "granted") {
           new Notification(isTimeUp ? "⏰ Coin Flip Time's Up!" : `🪙 ${w.label}`, {
             body: isTimeUp ? "Submit your side selection now." : `${formatTime(w.at)} remaining.`,
@@ -78,7 +112,17 @@ export function PairingsTab() {
         }
       }
     }
-  }, [timeLeft, timerState, firedWarnings, toast, playBeep]);
+
+    // Also fire initial warning at timer start (full duration)
+    if (timeLeft === timerDuration && !firedWarnings.has(timerDuration) && timerDuration > 0) {
+      setFiredWarnings((prev) => new Set(prev).add(timerDuration));
+      toast({
+        title: "🪙 Coin Flip Timer Started",
+        description: `${formatTime(timerDuration)} to complete the coin flip.`,
+      });
+      playBeep(550, 300);
+    }
+  }, [timeLeft, timerState, firedWarnings, toast, playBeep, timerDuration]);
 
   // Timer tick
   useEffect(() => {
@@ -101,16 +145,17 @@ export function PairingsTab() {
     };
   }, [timerState]);
 
-  const startTimer = () => {
-    // Request notification permission
+  const startTimerInternal = (duration?: number) => {
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
-    setTimeLeft(timerDuration);
+    const dur = duration || timerDuration;
+    setTimeLeft(dur);
     setFiredWarnings(new Set());
     setTimerState("running");
   };
 
+  const startTimer = () => startTimerInternal();
   const pauseTimer = () => setTimerState("paused");
   const resumeTimer = () => setTimerState("running");
   const resetTimer = () => {
@@ -122,6 +167,9 @@ export function PairingsTab() {
   const progress = timerDuration > 0 ? ((timerDuration - timeLeft) / timerDuration) * 100 : 0;
   const isUrgent = timeLeft <= 60 && timerState === "running";
 
+  const showCoinFlip = coinFlip?.available || manualMode;
+  const isCompleted = coinFlip?.status === "completed";
+
   return (
     <div className="animate-fadein">
       <h2 className="font-serif text-[26px] font-extralight tracking-[-1px] italic mb-0.5">
@@ -131,109 +179,174 @@ export function PairingsTab() {
         {selectedTournament?.name || "No tournament selected"}
       </p>
 
-      {/* Coin Flip Timer */}
-      <div className={`flow-card mb-4 transition-colors ${isUrgent ? "border-destructive" : ""}`}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <span className="text-base">🪙</span>
-            <span className="flow-label">Coin Flip / Side Timer</span>
-          </div>
-          {timerState === "idle" && (
-            <select
-              value={timerDuration}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setTimerDuration(v);
-                setTimeLeft(v);
-              }}
-              className="bg-flow-surface2 border border-border rounded-md px-2 py-1 text-[11px] outline-none"
-            >
-              <option value={300}>5 min</option>
-              <option value={240}>4 min</option>
-              <option value={180}>3 min</option>
-              <option value={120}>2 min</option>
-              <option value={60}>1 min</option>
-            </select>
-          )}
-        </div>
-
-        {/* Progress bar */}
-        <div className="w-full h-1.5 rounded-full bg-flow-surface2 mb-2.5 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-1000 ${
-              isUrgent ? "bg-destructive" : "bg-primary"
-            }`}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-
-        <div className="flex items-center justify-between">
-          <span
-            className={`text-[28px] font-mono font-medium tracking-tight ${
-              isUrgent ? "text-destructive animate-pulse-dot" : "text-foreground"
-            }`}
-          >
-            {formatTime(timeLeft)}
-          </span>
-          <div className="flex gap-1.5">
-            {timerState === "idle" && (
-              <button
-                onClick={startTimer}
-                className="px-3 py-1.5 rounded-md text-[11px] cursor-pointer bg-primary text-primary-foreground border-none font-medium"
-              >
-                ▶ Start
-              </button>
-            )}
-            {timerState === "running" && (
-              <button
-                onClick={pauseTimer}
-                className="px-3 py-1.5 rounded-md text-[11px] cursor-pointer bg-flow-gold text-primary-foreground border-none font-medium"
-              >
-                ⏸ Pause
-              </button>
-            )}
-            {timerState === "paused" && (
-              <button
-                onClick={resumeTimer}
-                className="px-3 py-1.5 rounded-md text-[11px] cursor-pointer bg-primary text-primary-foreground border-none font-medium"
-              >
-                ▶ Resume
-              </button>
-            )}
-            {timerState !== "idle" && (
-              <button
-                onClick={resetTimer}
-                className="px-3 py-1.5 rounded-md text-[11px] cursor-pointer bg-flow-surface2 text-muted-foreground border border-border font-medium"
-              >
-                ↻ Reset
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Warning log */}
-        {firedWarnings.size > 0 && (
-          <div className="mt-3 border-t border-border pt-2.5">
-            <div className="flow-label mb-1.5">Alerts Fired</div>
-            <div className="flex flex-wrap gap-1.5">
-              {WARNINGS.filter((w) => firedWarnings.has(w.at)).map((w) => (
-                <span
-                  key={w.at}
-                  className={`text-[10px] px-2 py-0.5 rounded-full ${
-                    w.at === 0
-                      ? "bg-destructive/20 text-destructive"
-                      : w.at <= 60
-                      ? "bg-flow-warn-light text-flow-warn"
-                      : "bg-flow-accent-light text-primary"
-                  }`}
-                >
-                  {w.label}
+      {/* Coin Flip Section */}
+      {showCoinFlip && !isCompleted && (
+        <div className={`flow-card mb-4 transition-colors ${isUrgent ? "border-destructive" : ""}`}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-base">🪙</span>
+              <span className="flow-label">
+                {coinFlip?.available ? "Digital Coin Flip" : "Coin Flip Timer"}
+              </span>
+              {coinFlip?.available && (
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                  coinFlip.status === "active"
+                    ? "bg-flow-gold-light text-flow-gold"
+                    : "bg-flow-accent-light text-primary"
+                }`}>
+                  {coinFlip.status === "active" ? "LIVE" : coinFlip.status?.toUpperCase() || "DETECTED"}
                 </span>
-              ))}
+              )}
+            </div>
+            {timerState === "idle" && !coinFlip?.available && (
+              <select
+                value={timerDuration}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setTimerDuration(v);
+                  setTimeLeft(v);
+                }}
+                className="bg-flow-surface2 border border-border rounded-md px-2 py-1 text-[11px] outline-none"
+              >
+                <option value={300}>5 min</option>
+                <option value={240}>4 min</option>
+                <option value={180}>3 min</option>
+                <option value={120}>2 min</option>
+                <option value={60}>1 min</option>
+              </select>
+            )}
+          </div>
+
+          {/* Coin flip info from Tabroom */}
+          {coinFlip?.available && (
+            <div className="flex flex-wrap gap-2 mb-2.5">
+              {coinFlip.caller && (
+                <span className="text-[10px] bg-flow-surface2 px-2 py-0.5 rounded-full">
+                  Caller: {coinFlip.caller}
+                </span>
+              )}
+              {coinFlip.assigned_side && (
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                  coinFlip.assigned_side === "AFF"
+                    ? "bg-flow-accent-light text-primary"
+                    : "bg-flow-gold-light text-flow-gold"
+                }`}>
+                  Your side: {coinFlip.assigned_side}
+                </span>
+              )}
+              {coinFlip.deadline && (
+                <span className="text-[10px] bg-flow-surface2 px-2 py-0.5 rounded-full">
+                  Deadline: {coinFlip.deadline}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Progress bar */}
+          <div className="w-full h-1.5 rounded-full bg-flow-surface2 mb-2.5 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-1000 ${
+                isUrgent ? "bg-destructive" : "bg-primary"
+              }`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span
+              className={`text-[28px] font-mono font-medium tracking-tight ${
+                isUrgent ? "text-destructive animate-pulse-dot" : "text-foreground"
+              }`}
+            >
+              {formatTime(timeLeft)}
+            </span>
+            <div className="flex gap-1.5">
+              {timerState === "idle" && (
+                <button
+                  onClick={startTimer}
+                  className="px-3 py-1.5 rounded-md text-[11px] cursor-pointer bg-primary text-primary-foreground border-none font-medium"
+                >
+                  ▶ Start
+                </button>
+              )}
+              {timerState === "running" && (
+                <button
+                  onClick={pauseTimer}
+                  className="px-3 py-1.5 rounded-md text-[11px] cursor-pointer bg-flow-gold text-primary-foreground border-none font-medium"
+                >
+                  ⏸ Pause
+                </button>
+              )}
+              {timerState === "paused" && (
+                <button
+                  onClick={resumeTimer}
+                  className="px-3 py-1.5 rounded-md text-[11px] cursor-pointer bg-primary text-primary-foreground border-none font-medium"
+                >
+                  ▶ Resume
+                </button>
+              )}
+              {timerState !== "idle" && (
+                <button
+                  onClick={resetTimer}
+                  className="px-3 py-1.5 rounded-md text-[11px] cursor-pointer bg-flow-surface2 text-muted-foreground border border-border font-medium"
+                >
+                  ↻ Reset
+                </button>
+              )}
             </div>
           </div>
-        )}
-      </div>
+
+          {/* Warning log */}
+          {firedWarnings.size > 0 && (
+            <div className="mt-3 border-t border-border pt-2.5">
+              <div className="flow-label mb-1.5">Alerts Fired</div>
+              <div className="flex flex-wrap gap-1.5">
+                {WARNINGS.filter((w) => firedWarnings.has(w.at)).map((w) => (
+                  <span
+                    key={w.at}
+                    className={`text-[10px] px-2 py-0.5 rounded-full ${
+                      w.at === 0
+                        ? "bg-destructive/20 text-destructive"
+                        : w.at <= 60
+                        ? "bg-flow-warn-light text-flow-warn"
+                        : "bg-flow-accent-light text-primary"
+                    }`}
+                  >
+                    {w.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Completed coin flip */}
+      {isCompleted && coinFlip?.assigned_side && (
+        <div className="flow-card mb-4 border-primary">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🪙</span>
+            <span className="flow-label">Coin Flip Complete</span>
+            <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-medium ${
+              coinFlip.assigned_side === "AFF"
+                ? "bg-flow-accent-light text-primary"
+                : "bg-flow-gold-light text-flow-gold"
+            }`}>
+              You are {coinFlip.assigned_side}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Manual timer toggle when no coin flip detected */}
+      {!coinFlip?.available && !manualMode && (
+        <button
+          onClick={() => setManualMode(true)}
+          className="mb-4 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer bg-transparent border-none"
+        >
+          🪙 Start a manual coin flip timer
+        </button>
+      )}
 
       {!selectedTournament && (
         <div className="text-center py-8 text-muted-foreground text-xs">

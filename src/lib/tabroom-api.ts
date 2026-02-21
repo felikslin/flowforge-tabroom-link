@@ -38,6 +38,16 @@ export interface TabroomTournament {
   [key: string]: unknown;
 }
 
+export interface TabroomCoinFlip {
+  available: boolean;
+  deadline?: string;
+  countdown_seconds?: number;
+  duration_minutes?: number;
+  status?: "pending" | "active" | "completed";
+  assigned_side?: "AFF" | "NEG";
+  caller?: string;
+}
+
 export interface TabroomPairing {
   room: string;
   aff: string;
@@ -73,7 +83,7 @@ export async function tabroomGetPairings(
   tournId: string,
   eventId?: string,
   roundId?: string
-): Promise<{ pairings: TabroomPairing[]; total: number }> {
+): Promise<{ pairings: TabroomPairing[]; total: number; coin_flip?: TabroomCoinFlip }> {
   return callTabroom("pairings", {
     token,
     tourn_id: tournId,
