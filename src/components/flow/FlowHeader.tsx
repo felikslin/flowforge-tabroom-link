@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import type { FlowUser } from "@/types/flow";
+import { useTabroom } from "@/contexts/TabroomContext";
 
 interface FlowHeaderProps {
-  user: FlowUser;
   onSignOut: () => void;
 }
 
-export function FlowHeader({ user, onSignOut }: FlowHeaderProps) {
+export function FlowHeader({ onSignOut }: FlowHeaderProps) {
+  const { user, selectedTournament, tournaments, selectTournament } = useTabroom();
   const [time, setTime] = useState("");
+  const [showPicker, setShowPicker] = useState(false);
 
   useEffect(() => {
     const tick = () =>
@@ -18,6 +19,7 @@ export function FlowHeader({ user, onSignOut }: FlowHeaderProps) {
   }, []);
 
   const initial = user.name[0]?.toUpperCase() || "?";
+  const tournName = selectedTournament?.name || "No Tournament Selected";
 
   return (
     <header className="bg-card border-b border-border px-5 h-[52px] flex items-center justify-between flex-shrink-0 z-10 shadow-[0_1px_0_hsl(var(--border))]">
@@ -25,10 +27,31 @@ export function FlowHeader({ user, onSignOut }: FlowHeaderProps) {
         Fl<span className="text-primary not-italic">o</span>w
       </h1>
 
-      <div className="flex items-center gap-2">
-        <span className="bg-flow-accent-light text-primary text-[11px] font-medium px-3 py-1 rounded-full border border-primary/20">
-          📍 Harvard Invitational 2025
-        </span>
+      <div className="flex items-center gap-2 relative">
+        <button
+          onClick={() => setShowPicker(!showPicker)}
+          className="bg-flow-accent-light text-primary text-[11px] font-medium px-3 py-1 rounded-full border border-primary/20 cursor-pointer hover:bg-primary/20 transition-colors"
+        >
+          📍 {tournName}
+        </button>
+        {showPicker && tournaments.length > 1 && (
+          <div className="absolute top-full mt-1 left-0 bg-card border border-border rounded-lg shadow-lg z-50 min-w-[200px] py-1">
+            {tournaments.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  selectTournament(t);
+                  setShowPicker(false);
+                }}
+                className={`w-full text-left px-3 py-2 text-xs hover:bg-flow-surface2 transition-colors ${
+                  selectedTournament?.id === t.id ? "text-primary font-medium" : "text-foreground"
+                }`}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-3">

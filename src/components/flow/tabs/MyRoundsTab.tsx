@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { MOCK_ROUNDS } from "@/data/mock-data";
+import { useTabroom } from "@/contexts/TabroomContext";
 import type { TabId } from "@/types/flow";
 
 interface MyRoundsTabProps {
@@ -7,7 +6,7 @@ interface MyRoundsTabProps {
 }
 
 export function MyRoundsTab({ onTabChange }: MyRoundsTabProps) {
-  const [showFlip, setShowFlip] = useState(true);
+  const { pairings, selectedTournament, loading, errors } = useTabroom();
 
   return (
     <div className="animate-fadein">
@@ -15,128 +14,79 @@ export function MyRoundsTab({ onTabChange }: MyRoundsTabProps) {
         My Rounds
       </h2>
       <p className="text-muted-foreground text-[11.5px] mb-5">
-        Harvard Invitational · Lincoln-Douglas · Nov 14–16
+        {selectedTournament?.name || "No tournament selected"}
       </p>
 
-      {/* Flip banner */}
-      {showFlip && (
-        <div className="bg-flow-warn-light border border-destructive/30 rounded-lg px-3.5 py-3 mb-3 flex items-center gap-3">
-          <div className="text-[22px] flex-shrink-0">🪙</div>
-          <div>
-            <div className="text-[13px] font-medium text-destructive mb-0.5">
-              Coin flip — Round 3
-            </div>
-            <div className="text-[11px] text-muted-foreground">
-              Head to Sever 107. You won flip in R1 and R2.
-            </div>
-          </div>
-          <button
-            onClick={() => setShowFlip(false)}
-            className="ml-auto bg-destructive text-destructive-foreground border-none px-3 py-1.5 rounded-md font-mono text-[11px] font-medium cursor-pointer flex-shrink-0 hover:brightness-90"
-          >
-            Done ✓
-          </button>
+      {!selectedTournament && (
+        <div className="text-center py-8 text-muted-foreground text-xs">
+          Select a tournament from the <button onClick={() => onTabChange("entries")} className="text-primary underline bg-transparent border-none cursor-pointer text-xs">Entries tab</button> first.
         </div>
       )}
 
-      {/* Rounds */}
-      {MOCK_ROUNDS.map((round, i) => (
-        <div
-          key={i}
-          className="flow-card relative overflow-hidden mb-2.5"
-        >
-          {/* Left accent bar */}
-          <div
-            className={`absolute left-0 top-0 bottom-0 w-[3px] ${
-              round.status === "current"
-                ? "bg-destructive"
-                : round.status === "upcoming"
-                ? "bg-flow-gold"
-                : "bg-primary"
-            }`}
-          />
+      {loading.pairings && (
+        <div className="flex items-center gap-2 text-muted-foreground text-xs py-8 justify-center">
+          <div className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+          Loading rounds…
+        </div>
+      )}
 
-          <div className="pl-2">
-            <div className="font-serif text-[11px] text-muted-foreground italic mb-0.5">
-              {round.round} · {round.status === "current" ? "Now" : round.status === "complete" ? "Complete" : "Upcoming"}
-            </div>
-            <div className="text-sm font-medium mb-2.5 tracking-[-0.2px]">
-              {round.status === "upcoming"
-                ? round.opponent
-                : `vs. ${round.opponent}${round.school ? ` — ${round.school}` : ""}`}
-            </div>
+      {errors.pairings && (
+        <div className="rounded-lg px-3 py-2.5 text-xs mb-3.5"
+          style={{ background: "rgba(196,81,42,.2)", border: "1px solid rgba(196,81,42,.4)", color: "#fca" }}>
+          {errors.pairings}
+        </div>
+      )}
 
-            <div className="flex gap-4 flex-wrap">
-              {round.result && (
-                <div className="flex flex-col gap-px">
-                  <span className="flow-label">Result</span>
-                  <span className="text-xs font-medium text-primary">{round.result}</span>
+      {!loading.pairings && selectedTournament && pairings.length > 0 && (
+        <>
+          {pairings.map((p, i) => (
+            <div key={i} className="flow-card relative overflow-hidden mb-2.5">
+              <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary" />
+              <div className="pl-2">
+                <div className="text-sm font-medium mb-2 tracking-[-0.2px]">
+                  {p.aff} vs. {p.neg}
                 </div>
-              )}
-              {round.room && (
-                <div className="flex flex-col gap-px">
-                  <span className="flow-label">Room</span>
-                  <span className="text-xs font-medium">{round.room}</span>
+                <div className="flex gap-4 flex-wrap">
+                  {p.room && (
+                    <div className="flex flex-col gap-px">
+                      <span className="flow-label">Room</span>
+                      <span className="text-xs font-medium">{p.room}</span>
+                    </div>
+                  )}
+                  {p.judge && (
+                    <div className="flex flex-col gap-px">
+                      <span className="flow-label">Judge</span>
+                      <span className="text-xs font-medium">{p.judge}</span>
+                    </div>
+                  )}
                 </div>
-              )}
-              {round.side && (
-                <div className="flex flex-col gap-px">
-                  <span className="flow-label">Side</span>
-                  <span className="text-xs font-medium">{round.side}</span>
-                </div>
-              )}
-              {round.judge && (
-                <div className="flex flex-col gap-px">
-                  <span className="flow-label">Judge</span>
-                  <span className="text-xs font-medium">{round.judge}</span>
-                </div>
-              )}
-              {round.start && (
-                <div className="flex flex-col gap-px">
-                  <span className="flow-label">{round.status === "upcoming" ? "Est. Start" : "Start"}</span>
-                  <span className="text-xs font-medium">{round.start}</span>
-                </div>
-              )}
-              {round.points && (
-                <div className="flex flex-col gap-px">
-                  <span className="flow-label">Pts</span>
-                  <span className="text-xs font-medium text-primary">{round.points}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Actions */}
-            {round.status !== "upcoming" && (
-              <div className="flex gap-1.5 mt-2.5 flex-wrap">
-                {round.status === "current" && (
-                  <>
+                <div className="flex gap-1.5 mt-2.5 flex-wrap">
+                  {p.judge && (
                     <button
                       onClick={() => onTabChange("judge")}
                       className="inline-flex items-center gap-1.5 bg-flow-accent-light text-primary px-2.5 py-1.5 rounded-md text-[11px] font-medium cursor-pointer border-none font-mono transition-colors hover:bg-primary/20"
                     >
                       ⚖️ Paradigm
                     </button>
-                    <button
-                      onClick={() => onTabChange("nav")}
-                      className="inline-flex items-center gap-1.5 bg-flow-accent-light text-primary px-2.5 py-1.5 rounded-md text-[11px] font-medium cursor-pointer border-none font-mono transition-colors hover:bg-primary/20"
-                    >
-                      📍 Campus Map
-                    </button>
-                  </>
-                )}
-                {round.status === "complete" && (
+                  )}
                   <button
-                    onClick={() => onTabChange("ballots")}
+                    onClick={() => onTabChange("nav")}
                     className="inline-flex items-center gap-1.5 bg-flow-accent-light text-primary px-2.5 py-1.5 rounded-md text-[11px] font-medium cursor-pointer border-none font-mono transition-colors hover:bg-primary/20"
                   >
-                    📊 View Ballot
+                    📍 Directions
                   </button>
-                )}
+                </div>
               </div>
-            )}
-          </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {!loading.pairings && selectedTournament && pairings.length === 0 && !errors.pairings && (
+        <div className="text-center py-8 text-muted-foreground text-xs">
+          No pairings found yet. They may not have been posted.
         </div>
-      ))}
+      )}
     </div>
   );
 }

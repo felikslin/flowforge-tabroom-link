@@ -1,13 +1,7 @@
-export function EntriesTab() {
-  const entries = [
-    { name: "Harvard Invitational", meta: "Nov 14–16, 2025 · Cambridge MA · LD", code: "HA237", status: "Active now", active: true, statusColor: "text-primary" },
-    { name: "Greenhill Fall Classic", meta: "Sep 27–28, 2025 · Richardson TX · LD", code: "GH094", status: "5–2", active: false, statusColor: "text-muted-foreground" },
-    { name: "Valley Invitational", meta: "Oct 11–12, 2025 · Las Vegas NV · LD", code: "VL188", status: "4–2", active: false, statusColor: "text-muted-foreground" },
-  ];
+import { useTabroom } from "@/contexts/TabroomContext";
 
-  const upcoming = [
-    { name: "Grapevine Classic", meta: "Dec 5–7, 2025 · Grapevine TX · LD", code: "GV412", status: "Registered", statusColor: "text-flow-gold" },
-  ];
+export function EntriesTab() {
+  const { tournaments, selectedTournament, selectTournament, loading, errors } = useTabroom();
 
   return (
     <div className="animate-fadein">
@@ -15,47 +9,62 @@ export function EntriesTab() {
         My Entries
       </h2>
       <p className="text-muted-foreground text-[11.5px] mb-5">
-        Auto-loaded from your Tabroom account
+        Loaded from your Tabroom account
       </p>
 
-      <div className="flow-label mb-2">Current & Recent</div>
-      {entries.map((e, i) => (
-        <div
-          key={i}
-          className={`flex items-center justify-between px-3 py-2.5 rounded-lg border mb-2 ${
-            e.active ? "bg-flow-accent-light border-primary/20" : "bg-card border-border"
-          }`}
-        >
-          <div>
-            <div className="text-[13px] font-medium">{e.name}</div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">{e.meta}</div>
-          </div>
-          <div className="text-right">
-            <div className="bg-flow-surface2 rounded px-2 py-0.5 text-[11px] font-medium">{e.code}</div>
-            <div className={`text-[10px] font-medium mt-1 ${e.statusColor}`}>{e.status}</div>
-          </div>
+      {loading.tournaments && (
+        <div className="flex items-center gap-2 text-muted-foreground text-xs py-8 justify-center">
+          <div className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+          Loading tournaments…
         </div>
-      ))}
+      )}
 
-      <div className="flow-label mt-3.5 mb-2">Upcoming</div>
-      {upcoming.map((e, i) => (
-        <div
-          key={i}
-          className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-border bg-card mb-2"
-        >
-          <div>
-            <div className="text-[13px] font-medium">{e.name}</div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">{e.meta}</div>
-          </div>
-          <div className="text-right">
-            <div className="bg-flow-surface2 rounded px-2 py-0.5 text-[11px] font-medium">{e.code}</div>
-            <div className={`text-[10px] font-medium mt-1 ${e.statusColor}`}>{e.status}</div>
-          </div>
+      {errors.tournaments && (
+        <div className="rounded-lg px-3 py-2.5 text-xs mb-3.5"
+          style={{ background: "rgba(196,81,42,.2)", border: "1px solid rgba(196,81,42,.4)", color: "#fca" }}>
+          {errors.tournaments}
         </div>
-      ))}
+      )}
+
+      {!loading.tournaments && tournaments.length === 0 && !errors.tournaments && (
+        <div className="text-center py-8 text-muted-foreground text-xs">
+          No tournament entries found on your Tabroom account.
+        </div>
+      )}
+
+      {tournaments.length > 0 && (
+        <>
+          <div className="flow-label mb-2">Your Tournaments</div>
+          {tournaments.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => selectTournament(t)}
+              className={`w-full text-left flex items-center justify-between px-3 py-2.5 rounded-lg border mb-2 transition-colors ${
+                selectedTournament?.id === t.id
+                  ? "bg-flow-accent-light border-primary/20"
+                  : "bg-card border-border hover:border-primary/20"
+              }`}
+            >
+              <div>
+                <div className="text-[13px] font-medium">{t.name}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">
+                  ID: {t.id}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className={`text-[10px] font-medium mt-1 ${
+                  selectedTournament?.id === t.id ? "text-primary" : "text-muted-foreground"
+                }`}>
+                  {selectedTournament?.id === t.id ? "Selected" : "Tap to select"}
+                </div>
+              </div>
+            </button>
+          ))}
+        </>
+      )}
 
       <div className="mt-3.5 px-3 py-3 bg-flow-accent-light rounded-lg text-[11.5px] text-primary leading-[1.7]">
-        ✦ These load automatically from Tabroom — no manual search needed. Flow checks for new entries hourly.
+        ✦ These load automatically from Tabroom. Select a tournament to view its pairings, ballots, and more.
       </div>
     </div>
   );
