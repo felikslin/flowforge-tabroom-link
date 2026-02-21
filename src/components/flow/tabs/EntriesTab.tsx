@@ -1,7 +1,13 @@
 import { useTabroom } from "@/contexts/TabroomContext";
 
 export function EntriesTab() {
-  const { tournaments, selectedTournament, selectTournament, loading, errors } = useTabroom();
+  const { tournaments, entries, selectedTournament, selectTournament, loading, errors, refreshEntries } = useTabroom();
+
+  // Merge tournaments and entries, deduplicate by id
+  const allEntries = [...tournaments];
+  for (const e of entries) {
+    if (!allEntries.find((t) => t.id === e.id)) allEntries.push(e);
+  }
 
   return (
     <div className="animate-fadein">
@@ -9,33 +15,39 @@ export function EntriesTab() {
         My Entries
       </h2>
       <p className="text-muted-foreground text-[11.5px] mb-5">
-        Loaded from your Tabroom account
+        All tournament entries from your Tabroom account
       </p>
 
-      {loading.tournaments && (
+      {(loading.tournaments || loading.entries) && (
         <div className="flex items-center gap-2 text-muted-foreground text-xs py-8 justify-center">
           <div className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-          Loading tournaments…
+          Loading entries…
         </div>
       )}
 
-      {errors.tournaments && (
+      {(errors.tournaments || errors.entries) && (
         <div className="rounded-lg px-3 py-2.5 text-xs mb-3.5"
           style={{ background: "rgba(196,81,42,.2)", border: "1px solid rgba(196,81,42,.4)", color: "#fca" }}>
-          {errors.tournaments}
+          {errors.tournaments || errors.entries}
         </div>
       )}
 
-      {!loading.tournaments && tournaments.length === 0 && !errors.tournaments && (
+      {!loading.tournaments && allEntries.length === 0 && !errors.tournaments && (
         <div className="text-center py-8 text-muted-foreground text-xs">
           No tournament entries found on your Tabroom account.
         </div>
       )}
 
-      {tournaments.length > 0 && (
+      {allEntries.length > 0 && (
         <>
-          <div className="flow-label mb-2">Your Tournaments</div>
-          {tournaments.map((t) => (
+          <div className="flex items-center justify-between mb-2">
+            <div className="flow-label">Your Tournaments ({allEntries.length})</div>
+            <button onClick={refreshEntries}
+              className="px-2.5 py-1 rounded-md font-mono text-[10px] cursor-pointer bg-flow-surface2 text-foreground border border-border hover:border-primary/20 transition-colors">
+              ↻ Refresh
+            </button>
+          </div>
+          {allEntries.map((t) => (
             <button
               key={t.id}
               onClick={() => selectTournament(t)}
@@ -47,15 +59,17 @@ export function EntriesTab() {
             >
               <div>
                 <div className="text-[13px] font-medium">{t.name}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">
-                  ID: {t.id}
+                <div className="flex gap-3 mt-0.5">
+                  <span className="text-[11px] text-muted-foreground">ID: {t.id}</span>
+                  {t.event && <span className="text-[11px] text-primary">{t.event}</span>}
+                  {t.dates && <span className="text-[11px] text-muted-foreground">{t.dates}</span>}
                 </div>
               </div>
               <div className="text-right">
-                <div className={`text-[10px] font-medium mt-1 ${
+                <div className={`text-[10px] font-medium ${
                   selectedTournament?.id === t.id ? "text-primary" : "text-muted-foreground"
                 }`}>
-                  {selectedTournament?.id === t.id ? "Selected" : "Tap to select"}
+                  {selectedTournament?.id === t.id ? "✓ Selected" : "Tap to select"}
                 </div>
               </div>
             </button>
@@ -64,7 +78,7 @@ export function EntriesTab() {
       )}
 
       <div className="mt-3.5 px-3 py-3 bg-flow-accent-light rounded-lg text-[11.5px] text-primary leading-[1.7]">
-        ✦ These load automatically from Tabroom. Select a tournament to view its pairings, ballots, and more.
+        ✦ Select a tournament to view its pairings, ballots, rounds, and more.
       </div>
     </div>
   );

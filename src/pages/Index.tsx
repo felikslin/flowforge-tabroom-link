@@ -12,6 +12,7 @@ import { BallotsTab } from "@/components/flow/tabs/BallotsTab";
 import { EntriesTab } from "@/components/flow/tabs/EntriesTab";
 import { NearbyTab } from "@/components/flow/tabs/NearbyTab";
 import { ChatTab } from "@/components/flow/tabs/ChatTab";
+import { HistoryTab } from "@/components/flow/tabs/HistoryTab";
 import { TabroomProvider } from "@/contexts/TabroomContext";
 
 const Index = () => {
@@ -21,9 +22,7 @@ const Index = () => {
   useEffect(() => {
     const saved = localStorage.getItem("flow_user");
     if (saved) {
-      try {
-        setUser(JSON.parse(saved));
-      } catch { /* ignore */ }
+      try { setUser(JSON.parse(saved)); } catch { /* ignore */ }
     }
   }, []);
 
@@ -33,9 +32,7 @@ const Index = () => {
     setActiveTab("rounds");
   };
 
-  if (!user) {
-    return <LoginScreen onLoginSuccess={setUser} />;
-  }
+  if (!user) return <LoginScreen onLoginSuccess={setUser} />;
 
   const renderTab = () => {
     switch (activeTab) {
@@ -47,6 +44,7 @@ const Index = () => {
       case "entries": return <EntriesTab />;
       case "nearby": return <NearbyTab />;
       case "chat": return <ChatTab />;
+      case "history": return <HistoryTab />;
       default: return <MyRoundsTab onTabChange={setActiveTab} />;
     }
   };
@@ -55,12 +53,9 @@ const Index = () => {
     <TabroomProvider user={user}>
       <div className="h-full flex flex-col bg-background">
         <FlowHeader onSignOut={handleSignOut} />
-
         <div className="flex flex-1 overflow-hidden">
           <FlowSidebar activeTab={activeTab} onTabChange={setActiveTab} />
-          <main className="flex-1 overflow-y-auto p-5">
-            {renderTab()}
-          </main>
+          <main className="flex-1 overflow-y-auto p-5">{renderTab()}</main>
           <FlowRightPanel onSignOut={handleSignOut} />
         </div>
       </div>

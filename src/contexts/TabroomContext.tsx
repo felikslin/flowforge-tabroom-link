@@ -5,10 +5,16 @@ import {
   tabroomGetPairings,
   tabroomGetBallots,
   tabroomGetJudge,
+  tabroomGetMyRounds,
+  tabroomGetEntries,
+  tabroomGetPastResults,
+  tabroomGetUpcoming,
   type TabroomTournament,
   type TabroomPairing,
   type TabroomJudgeInfo,
   type TabroomCoinFlip,
+  type TabroomRound,
+  type TabroomPastResult,
 } from "@/lib/tabroom-api";
 
 interface TabroomState {
@@ -17,29 +23,24 @@ interface TabroomState {
   selectedTournament: TabroomTournament | null;
   pairings: TabroomPairing[];
   coinFlip: TabroomCoinFlip | null;
-  ballots: { html_preview?: string } | null;
+  ballots: TabroomRound[];
+  myRounds: TabroomRound[];
+  myRecord: { wins: number; losses: number };
   judgeInfo: TabroomJudgeInfo | null;
-  loading: {
-    tournaments: boolean;
-    pairings: boolean;
-    ballots: boolean;
-    judge: boolean;
-  };
-  errors: {
-    tournaments: string | null;
-    pairings: string | null;
-    ballots: string | null;
-    judge: string | null;
-  };
+  entries: TabroomTournament[];
+  pastResults: TabroomPastResult[];
+  upcomingTournaments: TabroomTournament[];
+  loading: Record<string, boolean>;
+  errors: Record<string, string | null>;
   selectTournament: (t: TabroomTournament) => void;
   refreshPairings: () => void;
   refreshBallots: () => void;
+  refreshMyRounds: () => void;
+  refreshEntries: () => void;
+  refreshPastResults: () => void;
+  refreshUpcoming: () => void;
   lookupJudge: (name?: string, id?: string) => void;
-  htmlPreviews: {
-    tournaments?: string;
-    pairings?: string;
-    ballots?: string;
-  };
+  htmlPreviews: Record<string, string | undefined>;
 }
 
 const TabroomContext = createContext<TabroomState | null>(null);
@@ -55,125 +56,139 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
   const [selectedTournament, setSelectedTournament] = useState<TabroomTournament | null>(null);
   const [pairings, setPairings] = useState<TabroomPairing[]>([]);
   const [coinFlip, setCoinFlip] = useState<TabroomCoinFlip | null>(null);
-  const [ballots, setBallots] = useState<{ html_preview?: string } | null>(null);
+  const [ballots, setBallots] = useState<TabroomRound[]>([]);
+  const [myRounds, setMyRounds] = useState<TabroomRound[]>([]);
+  const [myRecord, setMyRecord] = useState({ wins: 0, losses: 0 });
   const [judgeInfo, setJudgeInfo] = useState<TabroomJudgeInfo | null>(null);
+  const [entries, setEntries] = useState<TabroomTournament[]>([]);
+  const [pastResults, setPastResults] = useState<TabroomPastResult[]>([]);
+  const [upcomingTournaments, setUpcomingTournaments] = useState<TabroomTournament[]>([]);
   const [htmlPreviews, setHtmlPreviews] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState({
-    tournaments: false,
-    pairings: false,
-    ballots: false,
-    judge: false,
-  });
-  const [errors, setErrors] = useState<Record<string, string | null>>({
-    tournaments: null,
-    pairings: null,
-    ballots: null,
-    judge: null,
-  });
+  const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string | null>>({});
+
+  const setLoad = (key: string, val: boolean) => setLoading((l) => ({ ...l, [key]: val }));
+  const setErr = (key: string, val: string | null) => setErrors((e) => ({ ...e, [key]: val }));
 
   // Fetch tournaments on mount
   useEffect(() => {
     let cancelled = false;
     async function fetch() {
-      setLoading((l) => ({ ...l, tournaments: true }));
-      setErrors((e) => ({ ...e, tournaments: null }));
+      setLoad("tournaments", true);
+      setErr("tournaments", null);
       try {
         const res = await tabroomGetMyTournaments(user.token);
         if (!cancelled) {
           setTournaments(res.tournaments || []);
-          setHtmlPreviews((h) => ({ ...h, tournaments: (res as any).html_preview }));
-          // Auto-select first tournament
           if (res.tournaments?.length > 0 && !selectedTournament) {
             setSelectedTournament(res.tournaments[0]);
           }
         }
       } catch (err: any) {
-        if (!cancelled) setErrors((e) => ({ ...e, tournaments: err.message }));
+        if (!cancelled) setErr("tournaments", err.message);
       } finally {
-        if (!cancelled) setLoading((l) => ({ ...l, tournaments: false }));
+        if (!cancelled) setLoad("tournaments", false);
       }
     }
     fetch();
     return () => { cancelled = true; };
   }, [user.token]);
 
-  const selectTournament = useCallback((t: TabroomTournament) => {
-    setSelectedTournament(t);
-  }, []);
+  const selectTournament = useCallback((t: TabroomTournament) => setSelectedTournament(t), []);
 
-  // Fetch pairings when tournament changes
+  // Pairings
   const refreshPairings = useCallback(async () => {
     if (!selectedTournament) return;
-    setLoading((l) => ({ ...l, pairings: true }));
-    setErrors((e) => ({ ...e, pairings: null }));
+    setLoad("pairings", true); setErr("pairings", null);
     try {
       const res = await tabroomGetPairings(user.token, selectedTournament.id);
       setPairings(res.pairings || []);
       setCoinFlip(res.coin_flip || null);
-      setHtmlPreviews((h) => ({ ...h, pairings: (res as any).html_preview }));
-    } catch (err: any) {
-      setErrors((e) => ({ ...e, pairings: err.message }));
-    } finally {
-      setLoading((l) => ({ ...l, pairings: false }));
-    }
+    } catch (err: any) { setErr("pairings", err.message); }
+    finally { setLoad("pairings", false); }
   }, [user.token, selectedTournament]);
 
-  useEffect(() => {
-    if (selectedTournament) refreshPairings();
-  }, [selectedTournament, refreshPairings]);
+  useEffect(() => { if (selectedTournament) refreshPairings(); }, [selectedTournament, refreshPairings]);
 
-  // Fetch ballots when tournament changes
+  // My Rounds
+  const refreshMyRounds = useCallback(async () => {
+    if (!selectedTournament) return;
+    setLoad("rounds", true); setErr("rounds", null);
+    try {
+      const res = await tabroomGetMyRounds(user.token, selectedTournament.id);
+      setMyRounds(res.rounds || []);
+      setMyRecord(res.record || { wins: 0, losses: 0 });
+      setHtmlPreviews((h) => ({ ...h, rounds: res.html_preview }));
+    } catch (err: any) { setErr("rounds", err.message); }
+    finally { setLoad("rounds", false); }
+  }, [user.token, selectedTournament]);
+
+  useEffect(() => { if (selectedTournament) refreshMyRounds(); }, [selectedTournament, refreshMyRounds]);
+
+  // Ballots
   const refreshBallots = useCallback(async () => {
     if (!selectedTournament) return;
-    setLoading((l) => ({ ...l, ballots: true }));
-    setErrors((e) => ({ ...e, ballots: null }));
+    setLoad("ballots", true); setErr("ballots", null);
     try {
       const res = await tabroomGetBallots(user.token, selectedTournament.id);
-      setBallots(res);
-      setHtmlPreviews((h) => ({ ...h, ballots: (res as any).html_preview }));
-    } catch (err: any) {
-      setErrors((e) => ({ ...e, ballots: err.message }));
-    } finally {
-      setLoading((l) => ({ ...l, ballots: false }));
-    }
+      setBallots(res.rounds || []);
+      setHtmlPreviews((h) => ({ ...h, ballots: res.html_preview }));
+    } catch (err: any) { setErr("ballots", err.message); }
+    finally { setLoad("ballots", false); }
   }, [user.token, selectedTournament]);
 
-  useEffect(() => {
-    if (selectedTournament) refreshBallots();
-  }, [selectedTournament, refreshBallots]);
+  useEffect(() => { if (selectedTournament) refreshBallots(); }, [selectedTournament, refreshBallots]);
+
+  // Entries
+  const refreshEntries = useCallback(async () => {
+    setLoad("entries", true); setErr("entries", null);
+    try {
+      const res = await tabroomGetEntries(user.token);
+      setEntries(res.entries || []);
+    } catch (err: any) { setErr("entries", err.message); }
+    finally { setLoad("entries", false); }
+  }, [user.token]);
+
+  useEffect(() => { refreshEntries(); }, [refreshEntries]);
+
+  // Past results
+  const refreshPastResults = useCallback(async () => {
+    setLoad("pastResults", true); setErr("pastResults", null);
+    try {
+      const res = await tabroomGetPastResults(user.person_id || undefined, user.token);
+      setPastResults(res.results || []);
+    } catch (err: any) { setErr("pastResults", err.message); }
+    finally { setLoad("pastResults", false); }
+  }, [user.person_id, user.token]);
+
+  // Upcoming
+  const refreshUpcoming = useCallback(async () => {
+    setLoad("upcoming", true); setErr("upcoming", null);
+    try {
+      const res = await tabroomGetUpcoming();
+      setUpcomingTournaments(res.tournaments || []);
+    } catch (err: any) { setErr("upcoming", err.message); }
+    finally { setLoad("upcoming", false); }
+  }, []);
 
   const lookupJudge = useCallback(async (name?: string, id?: string) => {
-    setLoading((l) => ({ ...l, judge: true }));
-    setErrors((e) => ({ ...e, judge: null }));
+    setLoad("judge", true); setErr("judge", null);
     try {
       const res = await tabroomGetJudge(id, name);
       setJudgeInfo(res);
-    } catch (err: any) {
-      setErrors((e) => ({ ...e, judge: err.message }));
-    } finally {
-      setLoading((l) => ({ ...l, judge: false }));
-    }
+    } catch (err: any) { setErr("judge", err.message); }
+    finally { setLoad("judge", false); }
   }, []);
 
   return (
-    <TabroomContext.Provider
-      value={{
-        user,
-        tournaments,
-        selectedTournament,
-        pairings,
-        coinFlip,
-        ballots,
-        judgeInfo,
-        loading,
-        errors: errors as any,
-        selectTournament,
-        refreshPairings,
-        refreshBallots,
-        lookupJudge,
-        htmlPreviews,
-      }}
-    >
+    <TabroomContext.Provider value={{
+      user, tournaments, selectedTournament, pairings, coinFlip,
+      ballots, myRounds, myRecord, judgeInfo, entries,
+      pastResults, upcomingTournaments, loading, errors,
+      selectTournament, refreshPairings, refreshBallots,
+      refreshMyRounds, refreshEntries, refreshPastResults,
+      refreshUpcoming, lookupJudge, htmlPreviews,
+    }}>
       {children}
     </TabroomContext.Provider>
   );
