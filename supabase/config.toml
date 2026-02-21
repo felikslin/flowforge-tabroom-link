@@ -1,0 +1,4 @@
+project_id = "mvhdtnplcldiujeifkia"
+
+[functions.tabroom-proxy]
+verify_jwt = false
