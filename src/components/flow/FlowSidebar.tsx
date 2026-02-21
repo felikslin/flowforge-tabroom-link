@@ -20,6 +20,7 @@ const SECTIONS = [
     items: [
       { id: "ballots" as TabId, icon: "📊", label: "Ballots & Points" },
       { id: "entries" as TabId, icon: "🗂", label: "My Entries" },
+      { id: "history" as TabId, icon: "📜", label: "History" },
     ],
   },
   {

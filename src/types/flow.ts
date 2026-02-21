@@ -34,4 +34,5 @@ export type TabId =
   | "ballots"
   | "entries"
   | "nearby"
-  | "chat";
+  | "chat"
+  | "history";
