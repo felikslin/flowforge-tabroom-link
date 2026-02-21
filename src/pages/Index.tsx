@@ -12,12 +12,12 @@ import { BallotsTab } from "@/components/flow/tabs/BallotsTab";
 import { EntriesTab } from "@/components/flow/tabs/EntriesTab";
 import { NearbyTab } from "@/components/flow/tabs/NearbyTab";
 import { ChatTab } from "@/components/flow/tabs/ChatTab";
+import { TabroomProvider } from "@/contexts/TabroomContext";
 
 const Index = () => {
   const [user, setUser] = useState<FlowUser | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("rounds");
 
-  // Auto-login from localStorage
   useEffect(() => {
     const saved = localStorage.getItem("flow_user");
     if (saved) {
@@ -46,29 +46,25 @@ const Index = () => {
       case "ballots": return <BallotsTab />;
       case "entries": return <EntriesTab />;
       case "nearby": return <NearbyTab />;
-      case "chat": return <ChatTab user={user} />;
+      case "chat": return <ChatTab />;
       default: return <MyRoundsTab onTabChange={setActiveTab} />;
     }
   };
 
   return (
-    <div className="h-full flex flex-col bg-background">
-      <FlowHeader user={user} onSignOut={handleSignOut} />
+    <TabroomProvider user={user}>
+      <div className="h-full flex flex-col bg-background">
+        <FlowHeader onSignOut={handleSignOut} />
 
-      {/* Alert bar */}
-      <div className="bg-destructive text-destructive-foreground px-5 py-2 flex items-center gap-2.5 text-[11.5px] font-medium flex-shrink-0">
-        <div className="w-1.5 h-1.5 bg-destructive-foreground rounded-full flex-shrink-0 animate-pulse-dot" />
-        ⚑ Round 3 pairings posted — AFF vs. Jordan Park · Sever 107 · Report in 8 min
+        <div className="flex flex-1 overflow-hidden">
+          <FlowSidebar activeTab={activeTab} onTabChange={setActiveTab} />
+          <main className="flex-1 overflow-y-auto p-5">
+            {renderTab()}
+          </main>
+          <FlowRightPanel onSignOut={handleSignOut} />
+        </div>
       </div>
-
-      <div className="flex flex-1 overflow-hidden">
-        <FlowSidebar activeTab={activeTab} onTabChange={setActiveTab} />
-        <main className="flex-1 overflow-y-auto p-5">
-          {renderTab()}
-        </main>
-        <FlowRightPanel user={user} onSignOut={handleSignOut} />
-      </div>
-    </div>
+    </TabroomProvider>
   );
 };
 
