@@ -174,11 +174,11 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
   const lookupJudge = useCallback(async (name?: string, id?: string) => {
     setLoad("judge", true); setErr("judge", null);
     try {
-      const res = await tabroomGetJudge(id, name);
+      const res = await tabroomGetJudge(id, name, user.token);
       setJudgeInfo(res);
     } catch (err: any) { setErr("judge", err.message); }
     finally { setLoad("judge", false); }
-  }, []);
+  }, [user.token]);
 
   return (
     <TabroomContext.Provider value={{
