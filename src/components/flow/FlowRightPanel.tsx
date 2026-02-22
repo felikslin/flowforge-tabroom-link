@@ -6,7 +6,7 @@ interface RightPanelProps {
 }
 
 export function FlowRightPanel({ onSignOut }: RightPanelProps) {
-  const { user, selectedTournament, tournaments, entries, selectTournament, pairings, myRecord, myRounds, loading } = useTabroom();
+  const { user, selectedTournament, tournaments, entries, selectTournament, pairings, myRecord, myRounds, pastResults, loading } = useTabroom();
   const initial = user.name[0]?.toUpperCase() || "?";
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -38,6 +38,43 @@ export function FlowRightPanel({ onSignOut }: RightPanelProps) {
   const avgSpeaks = speaksValues.length > 0
     ? (speaksValues.reduce((a, b) => a + b, 0) / speaksValues.length).toFixed(1)
     : null;
+
+  // Count only user's pairings
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+  const userNorm = normalize(user.name || "");
+  const userParts = (user.name || "").trim().split(/\s+/);
+  const lastNorm = normalize(userParts[userParts.length - 1] || "");
+  const myPairingsCount = pairings.filter((p) => {
+    const affNorm = normalize(p.aff);
+    const negNorm = normalize(p.neg);
+    if (affNorm.includes(userNorm) || negNorm.includes(userNorm)) return true;
+    if (lastNorm.length >= 3 && (affNorm.includes(lastNorm) || negNorm.includes(lastNorm))) return true;
+    return false;
+  }).length;
+
+  // Aggregate record from past results as fallback
+  const pastRecord = pastResults.reduce(
+    (acc, r) => {
+      const match = r.record?.match(/(\d+)-(\d+)/);
+      if (match) { acc.wins += parseInt(match[1]); acc.losses += parseInt(match[2]); }
+      return acc;
+    },
+    { wins: 0, losses: 0 }
+  );
+
+  const hasRoundRecord = myRounds.length > 0;
+  const hasPastRecord = pastRecord.wins + pastRecord.losses > 0;
+
+  // Determine what to show
+  const recordDisplay = hasRoundRecord
+    ? `${myRecord.wins}–${myRecord.losses}`
+    : hasPastRecord
+      ? `${pastRecord.wins}–${pastRecord.losses}`
+      : "—";
+  const recordLabel = hasRoundRecord ? "Record" : hasPastRecord ? "Career" : "Record";
+
+  const secondStat = avgSpeaks || (myPairingsCount > 0 ? myPairingsCount : "—");
+  const secondLabel = avgSpeaks ? "Avg Speaks" : myPairingsCount > 0 ? "My Pairings" : "Speaks";
 
   return (
     <aside className="w-[240px] flex-shrink-0 bg-card border-l border-border p-4 flex flex-col gap-5 overflow-y-auto">
@@ -98,15 +135,15 @@ export function FlowRightPanel({ onSignOut }: RightPanelProps) {
         <div className="grid grid-cols-2 gap-2">
           <div className="bg-flow-surface2 rounded-lg p-2.5 text-center">
             <div className="font-serif text-2xl font-normal text-primary">
-              {myRounds.length > 0 ? `${myRecord.wins}–${myRecord.losses}` : tournaments.length}
+              {recordDisplay}
             </div>
-            <div className="flow-label mt-1">{myRounds.length > 0 ? "Record" : "Tournaments"}</div>
+            <div className="flow-label mt-1">{recordLabel}</div>
           </div>
           <div className="bg-flow-surface2 rounded-lg p-2.5 text-center">
             <div className="font-serif text-2xl font-normal text-primary">
-              {avgSpeaks || pairings.length}
+              {secondStat}
             </div>
-            <div className="flow-label mt-1">{avgSpeaks ? "Avg Speaks" : "Pairings"}</div>
+            <div className="flow-label mt-1">{secondLabel}</div>
           </div>
         </div>
         {(loading.pairings || loading.rounds) && (
