@@ -1,6 +1,31 @@
 import { useState, useRef, useEffect } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import type { TabroomPastResult } from "@/lib/tabroom-api";
+
+function PastResultCard({ result, onSelect }: { result: TabroomPastResult; onSelect?: (name: string) => void }) {
+  return (
+    <button
+      onClick={() => onSelect?.(result.tournament)}
+      className="w-full text-left flow-card mb-1.5 hover:border-primary/30 transition-colors cursor-pointer"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-medium truncate">{result.tournament}</div>
+          <div className="flex gap-3 mt-0.5 text-[11px] text-muted-foreground flex-wrap">
+            {result.event && <span>{result.event}</span>}
+            {result.dates && <span>{result.dates.replace(/&ndash;/g, "–")}</span>}
+            {result.place && <span className="text-primary font-medium">{result.place}</span>}
+            {result.record && <span>{result.record}</span>}
+          </div>
+        </div>
+        <svg className="w-3 h-3 ml-2 text-muted-foreground flex-shrink-0" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 1L7 5L3 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+    </button>
+  );
+}
 
 export function ResultsTab() {
   const {
@@ -13,8 +38,6 @@ export function ResultsTab() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showAllTournaments, setShowAllTournaments] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const [pastResultsFetched, setPastResultsFetched] = useState(false);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -64,22 +87,18 @@ export function ResultsTab() {
   // Determine rounds to display (prefer ballots, fallback to myRounds)
   const displayRounds = tournamentBallots.length > 0 ? tournamentBallots : myRounds;
 
-  // Find matching past result for selected tournament
-  const matchingPastResult = selectedTournament
-    ? pastResults.find((pr) => {
+  // Find matching past result(s) for selected tournament
+  const matchingPastResults = selectedTournament
+    ? pastResults.filter((pr) => {
         const prName = pr.tournament?.toLowerCase().trim() || "";
         const selName = selectedTournament.name?.toLowerCase().trim() || "";
-        return prName === selName || prName.includes(selName) || selName.includes(prName);
+        // Match if tournament names overlap (past results often include location)
+        return prName === selName || prName.includes(selName) || selName.includes(prName) ||
+          // Also match on first few words
+          (selName.split(" ").slice(0, 3).join(" ").length > 5 && prName.includes(selName.split(" ").slice(0, 3).join(" ")));
       })
-    : null;
-
-  // Fetch past results when no round data is available
-  useEffect(() => {
-    if (selectedTournament && !loading.ballots && !loading.rounds && displayRounds.length === 0 && !pastResultsFetched) {
-      refreshPastResults();
-      setPastResultsFetched(true);
-    }
-  }, [selectedTournament, loading.ballots, loading.rounds, displayRounds.length, pastResultsFetched]);
+    : [];
+  const matchingPastResult = matchingPastResults[0] || null;
 
   return (
     <div className="animate-fadein">
@@ -152,7 +171,24 @@ export function ResultsTab() {
         </div>
       )}
 
-      {!selectedTournament && validTournaments.length > 0 && (
+      {!selectedTournament && validTournaments.length > 0 && pastResults.length > 0 && (
+        <div className="space-y-2">
+          <div className="flow-label mb-2">Tournament History</div>
+          {pastResults.map((pr, i) => (
+            <PastResultCard key={i} result={pr} onSelect={(name) => {
+              const match = validTournaments.find(t => {
+                const tn = t.name?.toLowerCase().trim() || "";
+                const pn = name.toLowerCase().trim();
+                return tn === pn || tn.includes(pn) || pn.includes(tn) ||
+                  (pn.split(" ").slice(0, 3).join(" ").length > 5 && tn.includes(pn.split(" ").slice(0, 3).join(" ")));
+              });
+              if (match) handleSelectTournament(match);
+            }} />
+          ))}
+        </div>
+      )}
+
+      {!selectedTournament && validTournaments.length > 0 && pastResults.length === 0 && (
         <div className="text-center py-6 text-muted-foreground text-xs">
           Select a tournament above to view your results.
         </div>
@@ -336,6 +372,12 @@ export function ResultsTab() {
                             <div className="text-sm font-medium">{matchingPastResult.event}</div>
                           </div>
                         )}
+                        {matchingPastResult.dates && (
+                          <div>
+                            <div className="flow-label">Dates</div>
+                            <div className="text-sm font-medium">{matchingPastResult.dates.replace(/&ndash;/g, "–")}</div>
+                          </div>
+                        )}
                         {matchingPastResult.place && (
                           <div>
                             <div className="flow-label">Placement</div>
@@ -349,13 +391,25 @@ export function ResultsTab() {
                           </div>
                         )}
                       </div>
+                      {matchingPastResults.length > 1 && (
+                        <div className="mt-3 pt-3 border-t border-border">
+                          <div className="flow-label mb-2">Other entries at this tournament</div>
+                          {matchingPastResults.slice(1).map((pr, i) => (
+                            <div key={i} className="text-xs text-muted-foreground flex gap-2">
+                              {pr.event && <span>{pr.event}</span>}
+                              {pr.place && <span className="text-primary">{pr.place}</span>}
+                              {pr.record && <span>{pr.record}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <p className="text-muted-foreground text-[10px] mt-3">
-                        Detailed round-by-round data is not available for this tournament.
+                        Detailed round-by-round data is not available for this tournament. Tabroom restricts access to past tournament data.
                       </p>
                     </div>
                   ) : (
                     <div className="text-center py-6 text-muted-foreground text-xs">
-                      No results found for this tournament. Results may not be posted yet, or this tournament may not have public data.
+                      No results found for this tournament. Results may not be posted yet, or Tabroom may restrict access to this data.
                     </div>
                   )}
                 </div>

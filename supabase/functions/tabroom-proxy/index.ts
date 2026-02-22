@@ -64,59 +64,94 @@ async function handleLogin(body: { email: string; password: string }) {
 
     let personInfo: Record<string, unknown> = { person_id: null, name: null };
     
-    // Try multiple pages to extract real name and person_id
-    const pagesToTry = ["/user/home.mhtml", "/user/student/index.mhtml", "/user/login/profile.mhtml"];
+    // Strategy 1: Home page may have "Welcome, Name" or profile info
+    const pagesToTry = [
+      "/user/home.mhtml",
+      "/user/login/profile.mhtml",
+    ];
     for (const page of pagesToTry) {
       try {
         const dashRes = await tabroomFetch(page, token);
         const dashHtml = await dashRes.text();
+        if (isLoginPage(dashHtml)) continue;
         
+        // Extract person_id
         if (!personInfo.person_id) {
-          const personIdMatch = dashHtml.match(/person_id[=:]\s*["']?(\d+)/) || 
-                               dashHtml.match(/personId[=:]\s*["']?(\d+)/);
-          if (personIdMatch) personInfo.person_id = personIdMatch[1];
+          const pidMatch = dashHtml.match(/person_id[=:]\s*["']?(\d+)/) || 
+                           dashHtml.match(/personId[=:]\s*["']?(\d+)/);
+          if (pidMatch) personInfo.person_id = pidMatch[1];
         }
         
+        // Try form fields for name
         if (!personInfo.name) {
-          // Try multiple patterns for extracting the real name
-          const namePatterns = [
-            /Welcome[,\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/,  // "Welcome, First Last"
-            /class="[^"]*name[^"]*"[^>]*>\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i,  // class with "name"
-            /<title>[^<]*?([A-Z][a-z]+\s+[A-Z][a-z]+)[^<]*?<\/title>/,  // In title
-            /first[_\s]?name[^>]*value="([^"]+)"/i,  // Form field
-            /last[_\s]?name[^>]*value="([^"]+)"/i,   // Form field (will combine)
-          ];
-          
-          for (const p of namePatterns) {
-            const m = dashHtml.match(p);
-            if (m?.[1]) {
-              const name = m[1].trim();
-              // Validate it looks like a real name (not email, not HTML)
-              if (name.length >= 3 && name.length < 50 && /^[A-Z]/i.test(name) && !/[<>@]/.test(name)) {
-                personInfo.name = name;
-                console.log(`Login: Found name "${name}" from ${page}`);
-                break;
-              }
-            }
-          }
-          
-          // Try first_name + last_name form fields
-          if (!personInfo.name) {
-            const firstMatch = dashHtml.match(/first[_\s]?name[^>]*value="([^"]+)"/i) ||
-                              dashHtml.match(/name="first"[^>]*value="([^"]+)"/i);
-            const lastMatch = dashHtml.match(/last[_\s]?name[^>]*value="([^"]+)"/i) ||
-                             dashHtml.match(/name="last"[^>]*value="([^"]+)"/i);
-            if (firstMatch?.[1] && lastMatch?.[1]) {
-              personInfo.name = `${firstMatch[1].trim()} ${lastMatch[1].trim()}`;
-              console.log(`Login: Found name from form fields: "${personInfo.name}" on ${page}`);
-            }
+          // Tabroom profile uses name="first" value="..." and name="last" value="..."
+          const firstMatch = dashHtml.match(/name\s*=\s*"first"[^>]*value\s*=\s*"([^"]+)"/i) ||
+                            dashHtml.match(/name\s*=\s*"first_name"[^>]*value\s*=\s*"([^"]+)"/i) ||
+                            dashHtml.match(/value\s*=\s*"([^"]+)"[^>]*name\s*=\s*"first"/i);
+          const lastMatch = dashHtml.match(/name\s*=\s*"last"[^>]*value\s*=\s*"([^"]+)"/i) ||
+                           dashHtml.match(/name\s*=\s*"last_name"[^>]*value\s*=\s*"([^"]+)"/i) ||
+                           dashHtml.match(/value\s*=\s*"([^"]+)"[^>]*name\s*=\s*"last"/i);
+          if (firstMatch?.[1] && lastMatch?.[1]) {
+            personInfo.name = `${firstMatch[1].trim()} ${lastMatch[1].trim()}`;
+            console.log(`Login: Found name from form fields on ${page}: "${personInfo.name}"`);
           }
         }
+        
+        // Try heading patterns
+        if (!personInfo.name) {
+          const welcomeMatch = dashHtml.match(/Welcome[,\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/);
+          if (welcomeMatch?.[1]) {
+            personInfo.name = welcomeMatch[1].trim();
+            console.log(`Login: Found name from welcome on ${page}: "${personInfo.name}"`);
+          }
+        }
+        
+        // Log some context for debugging
+        const inputFields = (dashHtml.match(/<input[^>]*(?:first|last|name)[^>]*>/gi) || []).slice(0, 3);
+        if (inputFields.length > 0) console.log(`Login: Input fields on ${page}: ${JSON.stringify(inputFields)}`);
         
         if (personInfo.person_id && personInfo.name) break;
       } catch (e) {
-        console.log(`Could not fetch ${page}:`, (e as Error).message);
+        console.log(`Login: Could not fetch ${page}:`, (e as Error).message);
       }
+    }
+    
+    // Strategy 2: Student index page for person_id
+    if (!personInfo.person_id) {
+      try {
+        const res = await tabroomFetch("/user/student/index.mhtml", token);
+        const html = await res.text();
+        if (!isLoginPage(html)) {
+          const pidMatch = html.match(/person_id[=:]\s*["']?(\d+)/) || 
+                           html.match(/personId[=:]\s*["']?(\d+)/);
+          if (pidMatch) personInfo.person_id = pidMatch[1];
+        }
+      } catch { /* skip */ }
+    }
+    
+    // Strategy 3: Extract name from past-results entries
+    // Past results entries contain codes like "SevLak Feliks Lin" or "Seven Lakes Chen & Lin"
+    if (!personInfo.name && personInfo.person_id) {
+      try {
+        const prRes = await tabroomFetch(
+          `/index/results/ranked_list.mhtml?person_id=${personInfo.person_id}`, token
+        );
+        const prHtml = await prRes.text();
+        if (!isLoginPage(prHtml)) {
+          // Look for the person's name in page headings (not "Not Found")
+          const headingMatches = prHtml.matchAll(/<h[1-4][^>]*>\s*([\s\S]*?)\s*<\/h[1-4]>/gi);
+          for (const hm of headingMatches) {
+            const text = hm[1].replace(/<[^>]+>/g, "").trim();
+            if (text.length >= 4 && text.length < 40 && /^[A-Z]/.test(text) && 
+                !/not found|tabroom|log in|results|search/i.test(text) &&
+                /\s/.test(text)) {
+              personInfo.name = text;
+              console.log(`Login: Found name from ranked_list heading: "${personInfo.name}"`);
+              break;
+            }
+          }
+        }
+      } catch { /* skip */ }
     }
     
     console.log(`Login: Final person_id=${personInfo.person_id}, name=${personInfo.name}`);
