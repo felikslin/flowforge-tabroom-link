@@ -18,8 +18,7 @@ const SECTIONS = [
   {
     label: "My Account",
     items: [
-      { id: "ballots" as TabId, icon: "📊", label: "Ballots & Points" },
-      { id: "entries" as TabId, icon: "🗂", label: "My Entries" },
+      { id: "results" as TabId, icon: "📊", label: "Results" },
       { id: "history" as TabId, icon: "📜", label: "History" },
     ],
   },

@@ -323,8 +323,8 @@ export function MyRoundsTab({ onTabChange }: MyRoundsTabProps) {
       {!selectedTournament && (
         <div className="text-center py-8 text-muted-foreground text-xs">
           Select a tournament from the{" "}
-          <button onClick={() => onTabChange("entries")} className="text-primary underline bg-transparent border-none cursor-pointer text-xs">
-            Entries tab
+          <button onClick={() => onTabChange("results")} className="text-primary underline bg-transparent border-none cursor-pointer text-xs">
+            Results tab
           </button>{" "}first.
         </div>
       )}

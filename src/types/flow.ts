@@ -31,8 +31,7 @@ export type TabId =
   | "pairings"
   | "judge"
   | "nav"
-  | "ballots"
-  | "entries"
+  | "results"
   | "nearby"
   | "chat"
   | "history";
