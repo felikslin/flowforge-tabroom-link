@@ -115,7 +115,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     if (!selectedTournament) return;
     setLoad("rounds", true); setErr("rounds", null);
     try {
-      const res = await tabroomGetMyRounds(user.token, selectedTournament.id);
+      const res = await tabroomGetMyRounds(user.token, selectedTournament.id, user.name);
       setMyRounds(res.rounds || []);
       setMyRecord(res.record || { wins: 0, losses: 0 });
       setHtmlPreviews((h) => ({ ...h, rounds: res.html_preview }));
@@ -130,7 +130,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     if (!selectedTournament) return;
     setLoad("ballots", true); setErr("ballots", null);
     try {
-      const res = await tabroomGetBallots(user.token, selectedTournament.id);
+      const res = await tabroomGetBallots(user.token, selectedTournament.id, undefined, undefined, user.name);
       const rounds = (res.rounds || []).map((rd: TabroomRound) => ({
         ...rd,
         tournament_name: selectedTournament.name,
