@@ -69,6 +69,8 @@ export interface TabroomPastResult {
   event: string;
   place: string;
   record: string;
+  dates?: string;
+  location?: string;
 }
 
 // ─── API Functions ───────────────────────────────────────

@@ -165,6 +165,9 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     finally { setLoad("pastResults", false); }
   }, [user.person_id, user.token]);
 
+  // Eagerly load past results on mount
+  useEffect(() => { refreshPastResults(); }, [refreshPastResults]);
+
   // Upcoming
   const refreshUpcoming = useCallback(async () => {
     setLoad("upcoming", true); setErr("upcoming", null);
