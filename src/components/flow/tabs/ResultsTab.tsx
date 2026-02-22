@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 export function ResultsTab() {
   const {
@@ -182,7 +183,30 @@ export function ResultsTab() {
                 </div>
               )}
 
-              {/* Ballot/Round cards */}
+              {/* Speaker Points Trend Chart */}
+              {speaksValues.length >= 2 && (
+                <div className="bg-flow-surface2 rounded-lg p-3 mb-5">
+                  <div className="flow-label mb-2">Speaker Points Trend</div>
+                  <div className="h-[160px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={tournamentBallots
+                        .map((r, i) => ({ name: r.round || `R${i + 1}`, speaks: parseFloat(r.points) }))
+                        .filter((d) => !isNaN(d.speaks))}
+                        margin={{ top: 5, right: 10, left: -15, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                        <YAxis domain={["dataMin - 0.5", "dataMax + 0.5"]} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                        <Tooltip
+                          contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                          labelStyle={{ color: "hsl(var(--foreground))" }}
+                        />
+                        <Line type="monotone" dataKey="speaks" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3, fill: "hsl(var(--primary))" }} activeDot={{ r: 5 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
               {tournamentBallots.length > 0 ? (
                 tournamentBallots.map((r, i) => {
                   const isWin = /w|win/i.test(r.decision);
