@@ -8,7 +8,7 @@ import { MyRoundsTab } from "@/components/flow/tabs/MyRoundsTab";
 import { PairingsTab } from "@/components/flow/tabs/PairingsTab";
 import { JudgeTab } from "@/components/flow/tabs/JudgeTab";
 import { NavigationTab } from "@/components/flow/tabs/NavigationTab";
-import { ResultsTab } from "@/components/flow/tabs/ResultsTab";
+
 import { NearbyTab } from "@/components/flow/tabs/NearbyTab";
 import { ChatTab } from "@/components/flow/tabs/ChatTab";
 import { TabroomProvider } from "@/contexts/TabroomContext";
@@ -38,7 +38,7 @@ const Index = () => {
       case "pairings": return <PairingsTab />;
       case "judge": return <JudgeTab />;
       case "nav": return <NavigationTab />;
-      case "results": return <ResultsTab />;
+      
       case "nearby": return <NearbyTab />;
       case "chat": return <ChatTab />;
       default: return <MyRoundsTab onTabChange={setActiveTab} />;

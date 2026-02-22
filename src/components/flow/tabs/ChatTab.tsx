@@ -8,7 +8,7 @@ interface Message {
 }
 
 export function ChatTab() {
-  const { user, selectedTournament, pairings, judgeInfo, tournaments, myRounds, myRecord, ballots, pastResults } = useTabroom();
+  const { user, selectedTournament, pairings, judgeInfo, tournaments, myRounds, myRecord, ballots } = useTabroom();
   const [messages, setMessages] = useState<Message[]>([
     { role: "assistant", text: `Welcome to Flow, ${user.name.split(" ")[0]}! I have your live Tabroom data loaded. Ask me anything about your tournament, judge paradigms, strategy, or directions.` },
   ]);
@@ -38,7 +38,7 @@ export function ChatTab() {
         myRounds: myRounds.slice(0, 10),
         myRecord,
         ballots: ballots.slice(0, 10),
-        pastResults: pastResults.slice(0, 5),
+        
         allTournaments: tournaments.map((t) => ({ id: t.id, name: t.name })),
       };
 
