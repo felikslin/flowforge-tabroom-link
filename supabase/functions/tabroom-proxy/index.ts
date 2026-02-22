@@ -323,20 +323,22 @@ async function handleJudge(body: { judge_id?: string; judge_name?: string; token
 
 // ─── FIND ENTRY ID ───────────────────────────────────────
 async function findEntryId(token: string, tournId: string): Promise<string | null> {
-  // Method 1: Try the postings index page — look for entry_record or entry_id links
+  // Method 1 (BEST): Student tournament page — only shows the logged-in user's own entries
   try {
-    const res = await tabroomFetch(`/index/tourn/postings/index.mhtml?tourn_id=${tournId}`, token);
+    const res = await tabroomFetch(`/user/student/tourn.mhtml?tourn_id=${tournId}`, token);
     const html = await res.text();
-    const entryMatch = html.match(/entry_id=(\d+)/);
-    if (entryMatch) return entryMatch[1];
-    // Look for "Your Entry" or similar self-referencing links
-    const selfMatch = html.match(/entry_record[^"]*entry_id=(\d+)/i);
-    if (selfMatch) return selfMatch[1];
+    if (!isLoginPage(html)) {
+      const entryMatch = html.match(/entry_id=(\d+)/);
+      if (entryMatch) {
+        console.log(`findEntryId: Found ${entryMatch[1]} via student/tourn`);
+        return entryMatch[1];
+      }
+    }
   } catch (e) {
-    console.log("findEntryId postings failed:", (e as Error).message);
+    console.log("findEntryId student/tourn failed:", (e as Error).message);
   }
-  
-  // Method 2: Try Mason API to get the user's entry for this tournament
+
+  // Method 2: Mason API to get the user's entry for this tournament
   try {
     const decodedToken = decodeURIComponent(token);
     const cookieStr = `TabroomToken=${decodedToken}`;
@@ -349,14 +351,9 @@ async function findEntryId(token: string, tournId: string): Promise<string | nul
       console.log(`Mason API /me response:`, JSON.stringify(data).substring(0, 500));
       if (data?.entry?.id) return String(data.entry.id);
       if (data?.entries?.[0]?.id) return String(data.entries[0].id);
-      // Try to find entry_id in any nested structure
       const jsonStr = JSON.stringify(data);
       const entryMatch = jsonStr.match(/"entry_id"\s*:\s*(\d+)/);
       if (entryMatch) return entryMatch[1];
-      const idMatch = jsonStr.match(/"id"\s*:\s*(\d+)/);
-      if (data?.entry || data?.entries) {
-        if (idMatch) return idMatch[1];
-      }
     } else {
       console.log(`Mason API /me returned ${res.status}`);
     }
@@ -364,72 +361,161 @@ async function findEntryId(token: string, tournId: string): Promise<string | nul
     console.log("Mason API failed:", (e as Error).message);
   }
 
-  // Method 3: Try the student tournament-specific page
+  // Method 3: Student round_results page
   try {
-    const res = await tabroomFetch(`/user/student/tourn.mhtml?tourn_id=${tournId}`, token);
+    const res = await tabroomFetch(`/user/student/round_results.mhtml?tourn_id=${tournId}`, token);
     const html = await res.text();
-    const entryMatch = html.match(/entry_id=(\d+)/);
-    if (entryMatch) return entryMatch[1];
+    if (!isLoginPage(html)) {
+      const entryMatch = html.match(/entry_id=(\d+)/);
+      if (entryMatch) {
+        console.log(`findEntryId: Found ${entryMatch[1]} via student/round_results`);
+        return entryMatch[1];
+      }
+    }
   } catch (e) {
-    console.log("findEntryId student/tourn failed:", (e as Error).message);
+    console.log("findEntryId student/round_results failed:", (e as Error).message);
   }
 
+  // NOTE: We intentionally do NOT check the public postings page, as it returns
+  // random entries that may not belong to the logged-in user.
+  console.log(`findEntryId: No entry found for tourn ${tournId}`);
   return null;
 }
 
 // ─── BALLOTS ─────────────────────────────────────────────
+function parseRoundsFromHtml(html: string): Array<Record<string, string>> {
+  const rounds: Array<Record<string, string>> = [];
+  
+  // Try to detect table structure by looking at headers
+  const headerMatch = html.match(/<thead[^>]*>([\s\S]*?)<\/thead>/i) ||
+                     html.match(/<tr[^>]*>\s*(<th[\s\S]*?)<\/tr>/i);
+  let columnMap: string[] = [];
+  if (headerMatch) {
+    const headers = headerMatch[1].match(/<th[^>]*>([\s\S]*?)<\/th>/gi) || [];
+    columnMap = headers.map((h: string) => h.replace(/<[^>]+>/g, "").trim().toLowerCase());
+  }
+
+  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+  let match;
+  while ((match = rowRegex.exec(html)) !== null) {
+    const row = match[1];
+    if (/<th[\s>]/i.test(row)) continue;
+    const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/g) || [];
+    const cellText = cells.map((c: string) => c.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
+    if (cellText.length < 3) continue;
+
+    if (columnMap.length >= 3) {
+      // Use column headers for mapping
+      const entry: Record<string, string> = {};
+      for (let i = 0; i < cellText.length && i < columnMap.length; i++) {
+        const h = columnMap[i];
+        if (h.includes("round") || h.includes("rd") || h === "r") entry.round = cellText[i];
+        else if (h.includes("side")) entry.side = cellText[i];
+        else if (h.includes("opp")) entry.opponent = cellText[i];
+        else if (h.includes("judge") || h.includes("panel")) entry.judge = cellText[i];
+        else if (h.includes("decision") || h.includes("result") || h.includes("ballot") || h.includes("w/l")) entry.decision = cellText[i];
+        else if (h.includes("point") || h.includes("speak") || h.includes("pts")) entry.points = cellText[i];
+        else if (h.includes("room")) entry.room = cellText[i];
+      }
+      if (entry.round) rounds.push(entry);
+    } else {
+      // Fallback: positional parsing
+      const label = cellText[0];
+      if (label && /round|rd|r\s*\d|elim|final|quarter|semi|octo|double|triple/i.test(label)) {
+        rounds.push({
+          round: cellText[0], side: cellText[1] || "", opponent: cellText[2] || "",
+          judge: cellText[3] || "", decision: cellText[4] || "", points: cellText[5] || "",
+          room: cellText[6] || "",
+        });
+      }
+    }
+  }
+  return rounds;
+}
+
 async function handleBallots(body: { token: string; tourn_id: string; entry_id?: string }) {
   if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
 
   try {
-    // Strategy 1: Try entry_record with discovered entry_id
+    const pages: string[] = [];
+    
+    // Strategy 1: User's own entry record
     let entryId = body.entry_id;
     if (!entryId) {
       entryId = await findEntryId(body.token, body.tourn_id) || undefined;
     }
     
-    let html = "";
-    
     if (entryId) {
       const path = `/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}&entry_id=${entryId}`;
       const res = await tabroomFetch(path, body.token);
-      html = await res.text();
+      const html = await res.text();
+      if (!html.includes("Invalid Entry ID") && !isLoginPage(html)) {
+        pages.push(html);
+      }
     }
-    
-    // Strategy 2: If no entry_id or entry_record failed, try public results page
-    if (!entryId || html.includes("Invalid Entry ID")) {
+
+    // Strategy 2: Student round results page (authenticated, user-specific)
+    if (pages.length === 0) {
+      try {
+        const res = await tabroomFetch(`/user/student/round_results.mhtml?tourn_id=${body.tourn_id}`, body.token);
+        const html = await res.text();
+        if (!isLoginPage(html)) pages.push(html);
+      } catch (e) {
+        console.log("round_results fallback failed:", (e as Error).message);
+      }
+    }
+
+    // Strategy 3: Student tournament page (has some round info)
+    if (pages.length === 0) {
+      try {
+        const res = await tabroomFetch(`/user/student/tourn.mhtml?tourn_id=${body.tourn_id}`, body.token);
+        const html = await res.text();
+        if (!isLoginPage(html)) pages.push(html);
+      } catch (e) {
+        console.log("student/tourn fallback failed:", (e as Error).message);
+      }
+    }
+
+    // Strategy 4: Public results page (last resort)
+    if (pages.length === 0) {
       try {
         const res = await tabroomFetch(`/index/tourn/results/index.mhtml?tourn_id=${body.tourn_id}`, body.token);
-        html = await res.text();
+        const html = await res.text();
+        if (!isLoginPage(html)) pages.push(html);
       } catch (e) {
         console.log("Public results fallback failed:", (e as Error).message);
       }
     }
 
-    if (isLoginPage(html)) {
-      return json({ rounds: [], total: 0, error: "Session expired. Please sign out and back in." });
-    }
-
-    // Parse round results
-    const rounds: Array<Record<string, unknown>> = [];
-    const roundRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
-    let match;
-    while ((match = roundRegex.exec(html)) !== null) {
-      const row = match[1];
-      const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/g) || [];
-      const cellText = cells.map((c: string) => c.replace(/<[^>]+>/g, "").trim());
-      if (cellText.length >= 4) {
-        const roundLabel = cellText[0];
-        if (roundLabel && /round|rd|r\d|elim|final|quarter|semi|octo/i.test(roundLabel)) {
-          rounds.push({
-            round: cellText[0], side: cellText[1] || "", opponent: cellText[2] || "",
-            judge: cellText[3] || "", decision: cellText[4] || "", points: cellText[5] || "",
-          });
-        }
+    // Parse all collected pages
+    let allRounds: Array<Record<string, string>> = [];
+    let bestHtml = "";
+    for (const html of pages) {
+      const parsed = parseRoundsFromHtml(html);
+      if (parsed.length > allRounds.length) {
+        allRounds = parsed;
+        bestHtml = html;
       }
     }
 
-    return json({ rounds, total: rounds.length, html_preview: html.substring(0, 8000) });
+    // Also extract placement info from the page
+    let placement: string | null = null;
+    for (const html of pages) {
+      const placeMatch = html.match(/(?:place|finish|result|rank)[^<]*?:\s*([^<\n]+)/i) ||
+                        html.match(/(?:1st|2nd|3rd|\d+th)\s+(?:place|speaker|seed)/i) ||
+                        html.match(/class="[^"]*champion[^"]*"[^>]*>([^<]+)/i);
+      if (placeMatch) {
+        placement = (placeMatch[1] || placeMatch[0]).trim();
+        break;
+      }
+    }
+
+    return json({
+      rounds: allRounds,
+      total: allRounds.length,
+      placement,
+      html_preview: (bestHtml || pages[0] || "").substring(0, 8000),
+    });
   } catch (e) {
     return err(`Failed to fetch ballots: ${(e as Error).message}`, 502);
   }
@@ -440,38 +526,53 @@ async function handleMyRounds(body: { token: string; tourn_id: string }) {
   if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
 
   try {
+    const pages: string[] = [];
     const entryId = await findEntryId(body.token, body.tourn_id);
-    let html = "";
 
     if (entryId) {
       const res = await tabroomFetch(`/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}&entry_id=${entryId}`, body.token);
-      html = await res.text();
+      const html = await res.text();
+      if (!html.includes("Invalid Entry ID") && !isLoginPage(html)) pages.push(html);
     }
 
-    if (!entryId || html.includes("Invalid Entry ID")) {
+    // Also try student round_results page
+    if (pages.length === 0) {
+      try {
+        const res = await tabroomFetch(`/user/student/round_results.mhtml?tourn_id=${body.tourn_id}`, body.token);
+        const html = await res.text();
+        if (!isLoginPage(html)) pages.push(html);
+      } catch (e) {
+        console.log("MyRounds round_results fallback failed:", (e as Error).message);
+      }
+    }
+
+    if (pages.length === 0) {
+      try {
+        const res = await tabroomFetch(`/user/student/tourn.mhtml?tourn_id=${body.tourn_id}`, body.token);
+        const html = await res.text();
+        if (!isLoginPage(html)) pages.push(html);
+      } catch (e) {
+        console.log("MyRounds student/tourn fallback failed:", (e as Error).message);
+      }
+    }
+
+    if (pages.length === 0) {
       try {
         const res = await tabroomFetch(`/index/tourn/results/index.mhtml?tourn_id=${body.tourn_id}`, body.token);
-        html = await res.text();
+        const html = await res.text();
+        if (!isLoginPage(html)) pages.push(html);
       } catch (e) {
         console.log("MyRounds results fallback failed:", (e as Error).message);
       }
     }
 
-    if (isLoginPage(html)) {
-      return json({ rounds: [], record: { wins: 0, losses: 0 }, total: 0, error: "Session expired. Please sign out and back in." });
-    }
-
-    const rounds: Array<Record<string, string>> = [];
-    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
-    let match;
-    while ((match = rowRegex.exec(html)) !== null) {
-      const cells = match[1].match(/<td[^>]*>([\s\S]*?)<\/td>/g) || [];
-      const ct = cells.map((c: string) => c.replace(/<[^>]+>/g, "").trim());
-      if (ct.length >= 3) {
-        const label = ct[0];
-        if (label && /round|rd|r\s*\d|elim|final|quarter|semi|octo|double|triple/i.test(label)) {
-          rounds.push({ round: ct[0], side: ct[1] || "", opponent: ct[2] || "", judge: ct[3] || "", decision: ct[4] || "", points: ct[5] || "", room: ct[6] || "" });
-        }
+    let rounds: Array<Record<string, string>> = [];
+    let bestHtml = "";
+    for (const html of pages) {
+      const parsed = parseRoundsFromHtml(html);
+      if (parsed.length > rounds.length) {
+        rounds = parsed;
+        bestHtml = html;
       }
     }
 
@@ -482,7 +583,7 @@ async function handleMyRounds(body: { token: string; tourn_id: string }) {
       else if (dec.includes("l") || dec.includes("loss")) losses++;
     }
 
-    return json({ rounds, record: { wins, losses }, total: rounds.length, html_preview: html.substring(0, 5000) });
+    return json({ rounds, record: { wins, losses }, total: rounds.length, html_preview: (bestHtml || pages[0] || "").substring(0, 5000) });
   } catch (e) {
     return err(`Failed to fetch rounds: ${(e as Error).message}`, 502);
   }
