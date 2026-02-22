@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
 
 interface FlowHeaderProps {
@@ -6,7 +6,12 @@ interface FlowHeaderProps {
 }
 
 export function FlowHeader({ onSignOut }: FlowHeaderProps) {
-  const { user, selectedTournament, tournaments, selectTournament } = useTabroom();
+  let ctx: ReturnType<typeof useTabroom> | null = null;
+  try { ctx = useTabroom(); } catch { /* provider not ready */ }
+  const user = ctx?.user;
+  const selectedTournament = ctx?.selectedTournament ?? null;
+  const tournaments = ctx?.tournaments ?? [];
+  const selectTournament = ctx?.selectTournament;
   const [time, setTime] = useState("");
   const [showPicker, setShowPicker] = useState(false);
 
@@ -18,8 +23,10 @@ export function FlowHeader({ onSignOut }: FlowHeaderProps) {
     return () => clearInterval(id);
   }, []);
 
-  const initial = user.name[0]?.toUpperCase() || "?";
+  const initial = user?.name?.[0]?.toUpperCase() || "?";
   const tournName = selectedTournament?.name || "No Tournament Selected";
+
+  if (!user) return null;
 
   return (
     <header className="bg-card border-b border-border px-5 h-[52px] flex items-center justify-between flex-shrink-0 z-10 shadow-[0_1px_0_hsl(var(--border))]">
@@ -40,7 +47,7 @@ export function FlowHeader({ onSignOut }: FlowHeaderProps) {
               <button
                 key={t.id}
                 onClick={() => {
-                  selectTournament(t);
+                  selectTournament?.(t);
                   setShowPicker(false);
                 }}
                 className={`w-full text-left px-3 py-2 text-xs hover:bg-flow-surface2 transition-colors ${
