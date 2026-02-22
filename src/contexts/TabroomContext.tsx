@@ -125,34 +125,23 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
 
   useEffect(() => { if (selectedTournament) refreshMyRounds(); }, [selectedTournament, refreshMyRounds]);
 
-  // Ballots — fetch across all tournaments
+  // Ballots — fetch only for selected tournament to avoid rate limiting
   const refreshBallots = useCallback(async () => {
-    const tourns = tournaments.length > 0 ? tournaments : selectedTournament ? [selectedTournament] : [];
-    if (tourns.length === 0) return;
+    if (!selectedTournament) return;
     setLoad("ballots", true); setErr("ballots", null);
     try {
-      const results = await Promise.allSettled(
-        tourns.map((t) => tabroomGetBallots(user.token, t.id))
-      );
-      const allBallots: (TabroomRound & { tournament_name?: string })[] = [];
-      let htmlPreview = "";
-      results.forEach((r, i) => {
-        if (r.status === "fulfilled") {
-          const rounds = (r.value.rounds || []).map((rd: TabroomRound) => ({
-            ...rd,
-            tournament_name: tourns[i].name,
-          }));
-          allBallots.push(...rounds);
-          if (r.value.html_preview) htmlPreview += r.value.html_preview;
-        }
-      });
-      setBallots(allBallots);
-      setHtmlPreviews((h) => ({ ...h, ballots: htmlPreview || undefined }));
+      const res = await tabroomGetBallots(user.token, selectedTournament.id);
+      const rounds = (res.rounds || []).map((rd: TabroomRound) => ({
+        ...rd,
+        tournament_name: selectedTournament.name,
+      }));
+      setBallots(rounds);
+      setHtmlPreviews((h) => ({ ...h, ballots: res.html_preview || undefined }));
     } catch (err: any) { setErr("ballots", err.message); }
     finally { setLoad("ballots", false); }
-  }, [user.token, tournaments, selectedTournament]);
+  }, [user.token, selectedTournament]);
 
-  useEffect(() => { if (tournaments.length > 0 || selectedTournament) refreshBallots(); }, [tournaments, selectedTournament, refreshBallots]);
+  useEffect(() => { if (selectedTournament) refreshBallots(); }, [selectedTournament, refreshBallots]);
 
   // Entries
   const refreshEntries = useCallback(async () => {
