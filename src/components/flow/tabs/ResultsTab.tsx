@@ -304,19 +304,9 @@ export function ResultsTab() {
                   );
                 })
               ) : (
-                <>
-                  {htmlPreviews.ballots ? (
-                    <div className="flow-card">
-                      <div className="text-xs text-muted-foreground mb-3">Raw ballot data:</div>
-                      <div className="bg-flow-surface2 rounded-lg p-3 text-[11.5px] leading-[1.7] max-h-[400px] overflow-y-auto"
-                        dangerouslySetInnerHTML={{ __html: htmlPreviews.ballots }} />
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 text-muted-foreground text-xs">
-                      No results found for this tournament yet.
-                    </div>
-                  )}
-                </>
+                <div className="text-center py-6 text-muted-foreground text-xs">
+                  No round-by-round results found for this tournament. Results may not be posted yet.
+                </div>
               )}
             </>
           )}

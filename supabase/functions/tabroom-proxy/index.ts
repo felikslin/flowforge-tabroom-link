@@ -19,13 +19,36 @@ function err(msg: string, status = 400) {
   return json({ error: msg }, status);
 }
 
-async function tabroomFetch(path: string, token: string, options: RequestInit = {}) {
+async function tabroomFetch(path: string, token: string, options: RequestInit = {}): Promise<Response> {
   const url = path.startsWith("http") ? path : `${TABROOM_WEB}${path}`;
-  return await fetch(url, {
-    ...options,
-    headers: { Cookie: `TabroomToken=${token}`, ...(options.headers || {}) },
-    redirect: "manual",
-  });
+  // Decode token if URL-encoded for cookie use
+  const decodedToken = decodeURIComponent(token);
+  const cookieStr = `TabroomToken=${decodedToken}`;
+  
+  // Manual redirect following to preserve cookie across redirects
+  let allCookies = cookieStr;
+  let res = await fetch(url, { ...options, headers: { Cookie: allCookies, ...(options.headers || {}) }, redirect: "manual" });
+  let redirectCount = 0;
+  while ((res.status === 301 || res.status === 302 || res.status === 303 || res.status === 307) && redirectCount < 5) {
+    const location = res.headers.get("location");
+    if (!location) break;
+    // Capture any new cookies from the redirect response
+    const setCookies = res.headers.getSetCookie?.() || [];
+    for (const sc of setCookies) {
+      const cookiePart = sc.split(";")[0];
+      if (cookiePart) allCookies += `; ${cookiePart}`;
+    }
+    await res.text(); // consume body
+    // Don't follow redirects to login page
+    if (location.includes("/user/login/login.mhtml") || location.includes("msg=")) {
+      // Return a response indicating login required
+      break;
+    }
+    const nextUrl = location.startsWith("http") ? location : `${TABROOM_WEB}${location}`;
+    res = await fetch(nextUrl, { headers: { Cookie: allCookies }, redirect: "manual" });
+    redirectCount++;
+  }
+  return res;
 }
 
 // ─── LOGIN ───────────────────────────────────────────────
@@ -54,7 +77,7 @@ async function handleLogin(body: { email: string; password: string }) {
 
     let personInfo: Record<string, unknown> = {};
     try {
-      const dashRes = await tabroomFetch("/index/index.mhtml", token);
+      const dashRes = await tabroomFetch("/user/home.mhtml", token);
       const dashHtml = await dashRes.text();
       const personIdMatch = dashHtml.match(/person_id[=:]\s*["']?(\d+)/);
       const nameMatch = dashHtml.match(/Welcome[,\s]+([^<]+)/i) ||
@@ -462,18 +485,19 @@ async function handleEntries(body: { token: string }) {
 // ─── UPCOMING TOURNAMENTS (public) ───────────────────────
 async function handleUpcoming() {
   try {
-    const res = await fetch(`${TABROOM_WEB}/index/index.mhtml`);
+    const res = await fetch(`${TABROOM_WEB}/index/index.mhtml`, { redirect: "follow" });
     const html = await res.text();
 
     const tournaments: Array<Record<string, string>> = [];
-    // Tabroom homepage lists upcoming tournaments
-    const tournRegex = /tourn_id=(\d+)[^>]*>([^<]+)/g;
+    // Tabroom homepage lists upcoming tournaments with links
+    const tournRegex = /tourn_id=(\d+)[^>]*>\s*([^<]+)/g;
     let match;
     const seenIds = new Set<string>();
     while ((match = tournRegex.exec(html)) !== null) {
-      if (!seenIds.has(match[1])) {
+      const name = match[2].replace(/\s+/g, " ").trim();
+      if (!seenIds.has(match[1]) && name.length > 1) {
         seenIds.add(match[1]);
-        tournaments.push({ id: match[1], name: match[2].trim() });
+        tournaments.push({ id: match[1], name });
       }
     }
 
@@ -486,38 +510,82 @@ async function handleUpcoming() {
 // ─── PAST RESULTS (competitor history) ───────────────────
 async function handlePastResults(body: { person_id?: string; token?: string }) {
   try {
-    // If person_id available, use the competitor history page
+    // Try using the person's competition history on tabroom
+    // Multiple URL patterns to try
+    const urls: string[] = [];
     if (body.person_id) {
-      const res = await fetch(`${TABROOM_WEB}/index/results/ranked_list.mhtml?person_id=${body.person_id}`);
-      const html = await res.text();
-
-      const results: Array<Record<string, string>> = [];
-      const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
-      let match;
-      while ((match = rowRegex.exec(html)) !== null) {
-        const cells = match[1].match(/<td[^>]*>([\s\S]*?)<\/td>/g) || [];
-        const ct = cells.map((c: string) => c.replace(/<[^>]+>/g, "").trim());
-        if (ct.length >= 2 && ct[0] && !ct[0].toLowerCase().includes("tournament")) {
-          results.push({
-            tournament: ct[0],
-            event: ct[1] || "",
-            place: ct[2] || "",
-            record: ct[3] || "",
-          });
-        }
-      }
-
-      return json({ results, total: results.length, html_preview: html.substring(0, 5000) });
+      urls.push(`${TABROOM_WEB}/index/results/ranked_list.mhtml?person_id=${body.person_id}`);
     }
-
-    // Fallback: use token to get history from student page
+    
+    // Also try student history page with token (more reliable)
     if (body.token) {
-      const res = await tabroomFetch("/user/student/history.mhtml", body.token);
-      const html = await res.text();
-      return json({ html_preview: html.substring(0, 5000) });
+      urls.push(`${TABROOM_WEB}/user/student/history.mhtml`);
     }
 
-    return err("person_id or token is required");
+    if (urls.length === 0) return err("person_id or token is required");
+
+    for (const url of urls) {
+      try {
+        const res = body.token 
+          ? await tabroomFetch(url, body.token) 
+          : await fetch(url, { redirect: "follow" });
+        const html = await res.text();
+
+        const results: Array<Record<string, string>> = [];
+        
+        // Parse table rows - look for tournament result data
+        const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+        let match;
+        while ((match = rowRegex.exec(html)) !== null) {
+          const row = match[1];
+          // Skip header rows
+          if (/<th[\s>]/i.test(row)) continue;
+          
+          const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
+          const ct = cells.map((c: string) => c.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
+          
+          if (ct.length >= 2) {
+            // Skip header-like rows
+            const firstLower = ct[0].toLowerCase();
+            if (firstLower.includes("tournament") || firstLower.includes("event") || !ct[0]) continue;
+            
+            results.push({
+              tournament: ct[0],
+              event: ct[1] || "",
+              place: ct[2] || "",
+              record: ct[3] || "",
+            });
+          }
+        }
+
+        // Also try extracting from links if table parsing yielded nothing
+        if (results.length === 0) {
+          const linkRegex = /tourn_id=(\d+)[^>]*>([^<]+)/g;
+          let lm;
+          const seenIds = new Set<string>();
+          while ((lm = linkRegex.exec(html)) !== null) {
+            const name = lm[2].trim();
+            if (!seenIds.has(lm[1]) && name.length > 1) {
+              seenIds.add(lm[1]);
+              results.push({
+                tournament: name,
+                event: "",
+                place: "",
+                record: "",
+              });
+            }
+          }
+        }
+
+        if (results.length > 0) {
+          return json({ results, total: results.length, html_preview: html.substring(0, 5000) });
+        }
+      } catch (e) {
+        console.log(`Failed to fetch from ${url}:`, (e as Error).message);
+      }
+    }
+
+    return json({ results: [], total: 0 });
   } catch (e) {
     return err(`Failed to fetch past results: ${(e as Error).message}`, 502);
   }
