@@ -7,11 +7,14 @@ export function ResultsTab() {
     tournaments, entries, selectedTournament, selectTournament,
     ballots, myRounds, myRecord, loading, errors,
     refreshBallots, refreshMyRounds, refreshEntries, htmlPreviews,
+    pastResults, refreshPastResults,
   } = useTabroom();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showAllTournaments, setShowAllTournaments] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const [pastResultsFetched, setPastResultsFetched] = useState(false);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -22,6 +25,7 @@ export function ResultsTab() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
 
   // Merge and deduplicate tournament list
   const allTournaments = [...tournaments];
@@ -59,6 +63,23 @@ export function ResultsTab() {
 
   // Determine rounds to display (prefer ballots, fallback to myRounds)
   const displayRounds = tournamentBallots.length > 0 ? tournamentBallots : myRounds;
+
+  // Find matching past result for selected tournament
+  const matchingPastResult = selectedTournament
+    ? pastResults.find((pr) => {
+        const prName = pr.tournament?.toLowerCase().trim() || "";
+        const selName = selectedTournament.name?.toLowerCase().trim() || "";
+        return prName === selName || prName.includes(selName) || selName.includes(prName);
+      })
+    : null;
+
+  // Fetch past results when no round data is available
+  useEffect(() => {
+    if (selectedTournament && !loading.ballots && !loading.rounds && displayRounds.length === 0 && !pastResultsFetched) {
+      refreshPastResults();
+      setPastResultsFetched(true);
+    }
+  }, [selectedTournament, loading.ballots, loading.rounds, displayRounds.length, pastResultsFetched]);
 
   return (
     <div className="animate-fadein">
@@ -304,8 +325,39 @@ export function ResultsTab() {
               )}
 
               {displayRounds.length === 0 && (
-                <div className="text-center py-6 text-muted-foreground text-xs">
-                  No round-by-round results found for this tournament. Results may not be posted yet, or this tournament may not have public round data.
+                <div className="space-y-4">
+                  {matchingPastResult ? (
+                    <div className="bg-flow-surface2 rounded-lg p-4">
+                      <div className="flow-label mb-3">Tournament Summary</div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {matchingPastResult.event && (
+                          <div>
+                            <div className="flow-label">Event</div>
+                            <div className="text-sm font-medium">{matchingPastResult.event}</div>
+                          </div>
+                        )}
+                        {matchingPastResult.place && (
+                          <div>
+                            <div className="flow-label">Placement</div>
+                            <div className="text-sm font-medium text-primary">{matchingPastResult.place}</div>
+                          </div>
+                        )}
+                        {matchingPastResult.record && (
+                          <div>
+                            <div className="flow-label">Record</div>
+                            <div className="text-sm font-medium">{matchingPastResult.record}</div>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-muted-foreground text-[10px] mt-3">
+                        Detailed round-by-round data is not available for this tournament.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-muted-foreground text-xs">
+                      No results found for this tournament. Results may not be posted yet, or this tournament may not have public data.
+                    </div>
+                  )}
                 </div>
               )}
             </>
