@@ -172,6 +172,8 @@ async function handlePairings(body: { token: string; tourn_id: string; event_id?
 function isLoginPage(html: string): boolean {
   const lower = html.toLowerCase();
   return lower.includes("log in to tabroom") || lower.includes("please login to view") || 
+    lower.includes("login session has expired") || lower.includes("please log in again") ||
+    lower.includes("showloginbox") ||
     (lower.includes("password") && lower.includes("email") && lower.includes("create a new account"));
 }
 
@@ -348,6 +350,11 @@ async function handleBallots(body: { token: string; tourn_id: string; entry_id?:
     const res = await tabroomFetch(path, body.token);
     const html = await res.text();
 
+    // Detect expired session
+    if (isLoginPage(html)) {
+      return json({ rounds: [], total: 0, error: "Session expired. Please sign out and back in." });
+    }
+
     // Parse round results from ballots page
     const rounds: Array<Record<string, unknown>> = [];
     const roundRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
@@ -390,6 +397,11 @@ async function handleMyRounds(body: { token: string; tourn_id: string }) {
     // Fetch the user's entry record page which has round-by-round results
     const res = await tabroomFetch(`/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}`, body.token);
     const html = await res.text();
+
+    // Detect expired session
+    if (isLoginPage(html)) {
+      return json({ rounds: [], record: { wins: 0, losses: 0 }, total: 0, error: "Session expired. Please sign out and back in." });
+    }
 
     const rounds: Array<Record<string, string>> = [];
     const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
@@ -510,16 +522,14 @@ async function handleUpcoming() {
 // ─── PAST RESULTS (competitor history) ───────────────────
 async function handlePastResults(body: { person_id?: string; token?: string }) {
   try {
-    // Try using the person's competition history on tabroom
-    // Multiple URL patterns to try
+    // Try authenticated student dashboard first (shows past tournaments with results)
     const urls: string[] = [];
+    if (body.token) {
+      urls.push(`${TABROOM_WEB}/user/student/index.mhtml`);
+      urls.push(`${TABROOM_WEB}/user/student/history.mhtml`);
+    }
     if (body.person_id) {
       urls.push(`${TABROOM_WEB}/index/results/ranked_list.mhtml?person_id=${body.person_id}`);
-    }
-    
-    // Also try student history page with token (more reliable)
-    if (body.token) {
-      urls.push(`${TABROOM_WEB}/user/student/history.mhtml`);
     }
 
     if (urls.length === 0) return err("person_id or token is required");
@@ -531,41 +541,88 @@ async function handlePastResults(body: { person_id?: string; token?: string }) {
           : await fetch(url, { redirect: "follow" });
         const html = await res.text();
 
+        // CRITICAL: detect expired/invalid sessions
+        if (isLoginPage(html)) {
+          console.log(`Session expired or login required for ${url}`);
+          continue; // try next URL
+        }
+
         const results: Array<Record<string, string>> = [];
         
         // Parse table rows - look for tournament result data
+        // First, try to detect table headers to understand column mapping
+        const headerMatch = html.match(/<thead[^>]*>([\s\S]*?)<\/thead>/i) || 
+                           html.match(/<tr[^>]*>\s*(<th[\s\S]*?)<\/tr>/i);
+        
+        let columnMap: string[] = [];
+        if (headerMatch) {
+          const headers = headerMatch[1].match(/<th[^>]*>([\s\S]*?)<\/th>/gi) || [];
+          columnMap = headers.map((h: string) => h.replace(/<[^>]+>/g, "").trim().toLowerCase());
+        }
+
         const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
         let match;
         while ((match = rowRegex.exec(html)) !== null) {
           const row = match[1];
-          // Skip header rows
           if (/<th[\s>]/i.test(row)) continue;
           
           const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
           const ct = cells.map((c: string) => c.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
           
-          if (ct.length >= 2) {
-            // Skip header-like rows
-            const firstLower = ct[0].toLowerCase();
-            if (firstLower.includes("tournament") || firstLower.includes("event") || !ct[0]) continue;
+          if (ct.length < 2) continue;
+          
+          // Skip header-like rows and empty rows
+          const firstLower = ct[0].toLowerCase();
+          if (firstLower.includes("tournament") || firstLower.includes("event") || !ct[0]) continue;
+          
+          // Use column headers if available to map correctly
+          if (columnMap.length >= 2) {
+            const entry: Record<string, string> = { tournament: "", event: "", place: "", record: "" };
+            for (let i = 0; i < ct.length && i < columnMap.length; i++) {
+              const h = columnMap[i];
+              if (h.includes("tourn") || h.includes("name")) entry.tournament = ct[i];
+              else if (h.includes("event") || h.includes("division")) entry.event = ct[i];
+              else if (h.includes("place") || h.includes("result") || h.includes("finish")) entry.place = ct[i];
+              else if (h.includes("record") || h.includes("w-l") || h.includes("win")) entry.record = ct[i];
+              else if (h.includes("date")) entry.dates = ct[i];
+              else if (h.includes("location") || h.includes("city")) entry.location = ct[i];
+            }
+            // Only add if we have a tournament name
+            if (entry.tournament) results.push(entry);
+          } else {
+            // Fallback: check if this looks like a tournament result row
+            // Tournament names are usually longer than dates
+            // Dates look like "2/20 - 2/22" or "Feb 20-22"
+            const looksLikeDate = /^\d{1,2}\/\d{1,2}/.test(ct[0]) || /^[A-Z][a-z]{2}\s+\d/.test(ct[0]);
             
-            results.push({
-              tournament: ct[0],
-              event: ct[1] || "",
-              place: ct[2] || "",
-              record: ct[3] || "",
-            });
+            if (looksLikeDate && ct.length >= 2) {
+              // Columns: Date, Tournament, Location, State — it's the homepage upcoming list, skip
+              continue;
+            }
+            
+            // Check if we can extract tournament links from the row
+            const linkMatch = match[1].match(/tourn_id=\d+[^>]*>([^<]+)/);
+            const tournName = linkMatch ? linkMatch[1].trim() : ct[0];
+            
+            if (tournName && tournName.length > 3) {
+              results.push({
+                tournament: tournName,
+                event: ct[1] || "",
+                place: ct[2] || "",
+                record: ct[3] || "",
+              });
+            }
           }
         }
 
-        // Also try extracting from links if table parsing yielded nothing
+        // Also try extracting from tournament links if table parsing yielded nothing
         if (results.length === 0) {
           const linkRegex = /tourn_id=(\d+)[^>]*>([^<]+)/g;
           let lm;
           const seenIds = new Set<string>();
           while ((lm = linkRegex.exec(html)) !== null) {
             const name = lm[2].trim();
-            if (!seenIds.has(lm[1]) && name.length > 1) {
+            if (!seenIds.has(lm[1]) && name.length > 3 && !/log\s*in|search|paradigm/i.test(name)) {
               seenIds.add(lm[1]);
               results.push({
                 tournament: name,
@@ -585,7 +642,7 @@ async function handlePastResults(body: { person_id?: string; token?: string }) {
       }
     }
 
-    return json({ results: [], total: 0 });
+    return json({ results: [], total: 0, error: "No results found. Your session may have expired — try signing out and back in." });
   } catch (e) {
     return err(`Failed to fetch past results: ${(e as Error).message}`, 502);
   }
