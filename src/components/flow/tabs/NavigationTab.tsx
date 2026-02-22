@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
 import { tabroomGetVenueMap, type TabroomVenueMap } from "@/lib/tabroom-api";
 
@@ -13,6 +13,9 @@ export function NavigationTab() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
 
   const tournamentName = selectedTournament?.name || "No Tournament";
 
@@ -41,10 +44,33 @@ export function NavigationTab() {
     return () => { cancelled = true; };
   }, [selectedTournament, user.token]);
 
-  // Extract rooms from pairings
+  // Extract unique rooms from pairings
+  const allRooms = useMemo(() => {
+    const rooms = pairings.filter((p) => p.room).map((p) => p.room);
+    return [...new Set(rooms)];
+  }, [pairings]);
+
   const pairingRooms = pairings
     .filter((p) => p.room)
     .map((p, i) => ({ label: `Pairing ${i + 1}`, room: p.room }));
+
+  // Filtered rooms based on search
+  const filteredRooms = useMemo(() => {
+    if (!searchQuery.trim()) return allRooms;
+    const q = searchQuery.toLowerCase();
+    return allRooms.filter((r) => r.toLowerCase().includes(q));
+  }, [allRooms, searchQuery]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   // Map interaction handlers
   const handleZoomIn = useCallback(() => setZoom((z) => Math.min(z + 0.3, 4)), []);
@@ -82,6 +108,42 @@ export function NavigationTab() {
         {tournamentName} · Venue map
       </p>
 
+      {/* Room search */}
+      {allRooms.length > 0 && (
+        <div ref={searchRef} className="relative mb-3">
+          <div className="flow-label mb-1.5">Find a Room</div>
+          <input
+            type="text"
+            placeholder="Search rooms (e.g. Room 107)…"
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setSearchOpen(true); }}
+            onFocus={() => setSearchOpen(true)}
+            className="w-full px-3 py-2 rounded-lg border border-border bg-card text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary transition-colors"
+          />
+          {searchOpen && searchQuery.trim() && (
+            <div className="absolute left-0 right-0 top-full mt-1 bg-card border border-border rounded-lg shadow-lg z-50 max-h-[200px] overflow-y-auto">
+              {filteredRooms.length === 0 ? (
+                <div className="px-3 py-2.5 text-[11px] text-muted-foreground">No rooms match "{searchQuery}"</div>
+              ) : (
+                filteredRooms.map((room) => (
+                  <button
+                    key={room}
+                    onClick={() => { setSelectedRoom(room); setSearchQuery(room); setSearchOpen(false); }}
+                    className={`w-full text-left px-3 py-2 text-[12px] border-none cursor-pointer transition-colors ${
+                      selectedRoom === room
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "bg-card text-foreground hover:bg-flow-surface2"
+                    }`}
+                  >
+                    {room}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Quick-jump from pairings */}
       {pairingRooms.length > 0 && (
         <div className="mb-3">
@@ -90,7 +152,7 @@ export function NavigationTab() {
             {pairingRooms.map((r, i) => (
               <button
                 key={i}
-                onClick={() => setSelectedRoom(r.room)}
+                onClick={() => { setSelectedRoom(r.room); setSearchQuery(r.room); }}
                 className={`px-2.5 py-1.5 rounded-md text-[11px] border cursor-pointer transition-all ${
                   selectedRoom === r.room
                     ? "bg-primary text-primary-foreground border-primary"
