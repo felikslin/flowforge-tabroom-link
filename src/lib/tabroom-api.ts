@@ -85,8 +85,8 @@ export async function tabroomGetPairings(token: string, tournId: string, eventId
   return callTabroom("pairings", { token, tourn_id: tournId, event_id: eventId, round_id: roundId });
 }
 
-export async function tabroomGetJudge(judgeId?: string, judgeName?: string): Promise<TabroomJudgeInfo> {
-  return callTabroom<TabroomJudgeInfo>("judge", { judge_id: judgeId, judge_name: judgeName });
+export async function tabroomGetJudge(judgeId?: string, judgeName?: string, token?: string): Promise<TabroomJudgeInfo> {
+  return callTabroom<TabroomJudgeInfo>("judge", { judge_id: judgeId, judge_name: judgeName, token });
 }
 
 export async function tabroomGetBallots(token: string, tournId: string, entryId?: string): Promise<{ rounds: TabroomRound[]; total: number; html_preview?: string }> {
