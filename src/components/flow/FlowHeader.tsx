@@ -1,4 +1,4 @@
-import { useEffect, useState, useContext } from "react";
+import { useEffect, useState } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
 
 interface FlowHeaderProps {
@@ -9,11 +9,7 @@ export function FlowHeader({ onSignOut }: FlowHeaderProps) {
   let ctx: ReturnType<typeof useTabroom> | null = null;
   try { ctx = useTabroom(); } catch { /* provider not ready */ }
   const user = ctx?.user;
-  const selectedTournament = ctx?.selectedTournament ?? null;
-  const tournaments = ctx?.tournaments ?? [];
-  const selectTournament = ctx?.selectTournament;
   const [time, setTime] = useState("");
-  const [showPicker, setShowPicker] = useState(false);
 
   useEffect(() => {
     const tick = () =>
@@ -24,7 +20,6 @@ export function FlowHeader({ onSignOut }: FlowHeaderProps) {
   }, []);
 
   const initial = user?.name?.[0]?.toUpperCase() || "?";
-  const tournName = selectedTournament?.name || "No Tournament Selected";
 
   if (!user) return null;
 
@@ -33,33 +28,6 @@ export function FlowHeader({ onSignOut }: FlowHeaderProps) {
       <h1 className="font-serif text-[22px] font-extralight tracking-[-1px] italic">
         Fl<span className="text-primary not-italic">o</span>w
       </h1>
-
-      <div className="flex items-center gap-2 relative">
-        <button
-          onClick={() => setShowPicker(!showPicker)}
-          className="bg-flow-accent-light text-primary text-[11px] font-medium px-3 py-1 rounded-full border border-primary/20 cursor-pointer hover:bg-primary/20 transition-colors"
-        >
-          📍 {tournName}
-        </button>
-        {showPicker && tournaments.length > 1 && (
-          <div className="absolute top-full mt-1 left-0 bg-card border border-border rounded-lg shadow-lg z-50 min-w-[200px] py-1">
-            {tournaments.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => {
-                  selectTournament?.(t);
-                  setShowPicker(false);
-                }}
-                className={`w-full text-left px-3 py-2 text-xs hover:bg-flow-surface2 transition-colors ${
-                  selectedTournament?.id === t.id ? "text-primary font-medium" : "text-foreground"
-                }`}
-              >
-                {t.name}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
 
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1.5 text-[11px] text-primary font-medium">
