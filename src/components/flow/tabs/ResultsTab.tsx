@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
@@ -10,9 +10,9 @@ export function ResultsTab() {
   } = useTabroom();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [showAllTournaments, setShowAllTournaments] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -29,7 +29,6 @@ export function ResultsTab() {
     if (!allTournaments.find((t) => t.id === e.id)) allTournaments.push(e);
   }
 
-  // Sort by dates descending (most recent first), tournaments without dates go last
   const sortedTournaments = [...allTournaments].sort((a, b) => {
     if (!a.dates && !b.dates) return 0;
     if (!a.dates) return 1;
@@ -37,7 +36,11 @@ export function ResultsTab() {
     return b.dates.localeCompare(a.dates);
   });
 
-  // Filter ballots/rounds for selected tournament
+  // Filter out empty-name tournaments
+  const validTournaments = sortedTournaments.filter((t) => t.name && t.name.trim().length > 0);
+  const displayedTournaments = showAllTournaments ? validTournaments : validTournaments.slice(0, 20);
+
+  // Use ballots for the selected tournament
   const tournamentBallots = ballots.filter(
     (r) => (r as any).tournament_name === selectedTournament?.name || !selectedTournament
   );
@@ -54,13 +57,16 @@ export function ResultsTab() {
     setDropdownOpen(false);
   };
 
+  // Determine rounds to display (prefer ballots, fallback to myRounds)
+  const displayRounds = tournamentBallots.length > 0 ? tournamentBallots : myRounds;
+
   return (
     <div className="animate-fadein">
       <h2 className="font-serif text-[26px] font-extralight tracking-[-1px] italic mb-0.5">
         Results
       </h2>
       <p className="text-muted-foreground text-[11.5px] mb-5">
-        Past tournaments · Ballots · Speaker points · Record
+        Round-by-round breakdown · Speaker points · Record
       </p>
 
       {/* Tournament dropdown */}
@@ -87,11 +93,11 @@ export function ResultsTab() {
           </svg>
         </button>
 
-        {dropdownOpen && sortedTournaments.length > 0 && (
-          <div className="absolute top-full mt-1 left-0 right-0 bg-card border border-border rounded-lg shadow-lg z-50 max-h-[280px] overflow-y-auto py-1">
-            {sortedTournaments.map((t) => (
+        {dropdownOpen && validTournaments.length > 0 && (
+          <div className="absolute top-full mt-1 left-0 right-0 bg-card border border-border rounded-lg shadow-lg z-50 max-h-[320px] overflow-y-auto py-1">
+            {displayedTournaments.map((t) => (
               <button
-                key={t.id}
+                key={`${t.id}-${t.name}`}
                 onClick={() => handleSelectTournament(t)}
                 className={`w-full text-left px-3.5 py-2.5 text-xs transition-colors ${
                   selectedTournament?.id === t.id
@@ -106,6 +112,14 @@ export function ResultsTab() {
                 </div>
               </button>
             ))}
+            {!showAllTournaments && validTournaments.length > 20 && (
+              <button
+                onClick={() => setShowAllTournaments(true)}
+                className="w-full text-center py-2 text-xs text-primary hover:bg-flow-surface2 transition-colors"
+              >
+                Show all {validTournaments.length} tournaments
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -117,23 +131,21 @@ export function ResultsTab() {
         </div>
       )}
 
-      {!selectedTournament && sortedTournaments.length > 0 && (
+      {!selectedTournament && validTournaments.length > 0 && (
         <div className="text-center py-6 text-muted-foreground text-xs">
-          Select a tournament above to view results.
+          Select a tournament above to view your results.
         </div>
       )}
 
       {selectedTournament && (
         <>
-          {/* Loading */}
           {(loading.ballots || loading.rounds) && (
             <div className="flex items-center gap-2 text-muted-foreground text-xs py-6 justify-center">
               <div className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-              Loading results…
+              Loading your results…
             </div>
           )}
 
-          {/* Errors */}
           {(errors.ballots || errors.rounds) && (
             <div className="rounded-lg px-3 py-2.5 text-xs mb-3.5"
               style={{ background: "rgba(196,81,42,.2)", border: "1px solid rgba(196,81,42,.4)", color: "#fca" }}>
@@ -149,12 +161,12 @@ export function ResultsTab() {
                   onClick={() => { refreshBallots(); refreshMyRounds(); }}
                   className="px-3 py-1.5 rounded-md font-mono text-[11px] cursor-pointer bg-primary text-primary-foreground border-none hover:brightness-90 transition-all"
                 >
-                  ↻ Refresh
+                  ↻ Refresh Results
                 </button>
               </div>
 
               {/* Stats summary */}
-              {(tournamentBallots.length > 0 || myRounds.length > 0) && (
+              {displayRounds.length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
                   <div className="bg-flow-surface2 rounded-lg p-3 text-center">
                     <div className="font-serif text-xl text-primary">
@@ -164,7 +176,7 @@ export function ResultsTab() {
                   </div>
                   <div className="bg-flow-surface2 rounded-lg p-3 text-center">
                     <div className="font-serif text-xl text-primary">
-                      {tournamentBallots.length || myRounds.length}
+                      {displayRounds.length}
                     </div>
                     <div className="flow-label mt-1">Rounds</div>
                   </div>
@@ -207,105 +219,93 @@ export function ResultsTab() {
                   </div>
                 </div>
               )}
-              {tournamentBallots.length > 0 ? (
-                tournamentBallots.map((r, i) => {
-                  const isWin = /w|win/i.test(r.decision);
-                  const isLoss = /l|loss/i.test(r.decision);
-                  return (
-                    <div key={i} className="flow-card relative overflow-hidden mb-2.5">
-                      <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${
-                        isWin ? "bg-primary" : isLoss ? "bg-destructive" : "bg-muted-foreground/30"
-                      }`} />
-                      <div className="pl-2">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-sm font-medium">{r.round}</span>
-                          {(isWin || isLoss) && (
-                            <span className={`flow-badge ${isWin ? "bg-flow-accent-light text-primary" : "bg-flow-warn-light text-destructive"}`}>
-                              {isWin ? "✓ Win" : "✗ Loss"}
-                            </span>
-                          )}
+
+              {/* Round-by-Round Breakdown */}
+              {displayRounds.length > 0 && (
+                <div className="mb-4">
+                  <div className="flow-label mb-2">Round-by-Round Breakdown</div>
+
+                  {/* Table header */}
+                  <div className="hidden sm:grid grid-cols-[auto_60px_1fr_1fr_60px_60px] gap-x-2 px-3 py-1.5 text-[10px] text-muted-foreground uppercase tracking-wider font-medium border-b border-border mb-1">
+                    <span>Round</span>
+                    <span>Side</span>
+                    <span>Opponent</span>
+                    <span>Judge</span>
+                    <span>Result</span>
+                    <span>Speaks</span>
+                  </div>
+
+                  {displayRounds.map((r, i) => {
+                    const isWin = /w|win/i.test(r.decision);
+                    const isLoss = /l|loss/i.test(r.decision);
+                    return (
+                      <div key={i} className="flow-card relative overflow-hidden mb-2">
+                        <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${
+                          isWin ? "bg-primary" : isLoss ? "bg-destructive" : "bg-muted-foreground/30"
+                        }`} />
+                        
+                        {/* Desktop layout */}
+                        <div className="hidden sm:grid grid-cols-[auto_60px_1fr_1fr_60px_60px] gap-x-2 items-center pl-3">
+                          <span className="text-sm font-medium min-w-[60px]">{r.round}</span>
+                          <span className="text-xs text-muted-foreground">{r.side || "—"}</span>
+                          <span className="text-xs font-medium truncate">{r.opponent || "—"}</span>
+                          <span className="text-xs text-muted-foreground truncate">{r.judge || "—"}</span>
+                          <span>
+                            {(isWin || isLoss) && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isWin ? "bg-flow-accent-light text-primary" : "bg-flow-warn-light text-destructive"}`}>
+                                {isWin ? "W" : "L"}
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-xs font-medium">{r.points || "—"}</span>
                         </div>
-                        <div className="flex gap-4 flex-wrap text-xs">
-                          {r.opponent && (
-                            <div className="flex flex-col gap-px">
-                              <span className="flow-label">Opponent</span>
-                              <span className="font-medium">{r.opponent}</span>
-                            </div>
-                          )}
-                          {r.side && (
-                            <div className="flex flex-col gap-px">
-                              <span className="flow-label">Side</span>
-                              <span className="font-medium">{r.side}</span>
-                            </div>
-                          )}
-                          {r.judge && (
-                            <div className="flex flex-col gap-px">
-                              <span className="flow-label">Judge</span>
-                              <span className="font-medium">{r.judge}</span>
-                            </div>
-                          )}
-                          {r.points && (
-                            <div className="flex flex-col gap-px">
-                              <span className="flow-label">Speaks</span>
-                              <span className="font-medium">{r.points}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : myRounds.length > 0 ? (
-                myRounds.map((r, i) => {
-                  const isWin = /w|win/i.test(r.decision);
-                  const isLoss = /l|loss/i.test(r.decision);
-                  return (
-                    <div key={i} className="flow-card relative overflow-hidden mb-2.5">
-                      <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${
-                        isWin ? "bg-primary" : isLoss ? "bg-destructive" : "bg-muted-foreground/30"
-                      }`} />
-                      <div className="pl-2">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-sm font-medium">{r.round}</span>
-                          {(isWin || isLoss) && (
-                            <span className={`flow-badge ${isWin ? "bg-flow-accent-light text-primary" : "bg-flow-warn-light text-destructive"}`}>
-                              {isWin ? "✓ Win" : "✗ Loss"}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex gap-4 flex-wrap text-xs">
-                          {r.opponent && (
-                            <div className="flex flex-col gap-px">
-                              <span className="flow-label">Opponent</span>
-                              <span className="font-medium">{r.opponent}</span>
-                            </div>
-                          )}
-                          {r.side && (
-                            <div className="flex flex-col gap-px">
-                              <span className="flow-label">Side</span>
-                              <span className="font-medium">{r.side}</span>
-                            </div>
-                          )}
-                          {r.judge && (
-                            <div className="flex flex-col gap-px">
-                              <span className="flow-label">Judge</span>
-                              <span className="font-medium">{r.judge}</span>
-                            </div>
-                          )}
-                          {r.points && (
-                            <div className="flex flex-col gap-px">
-                              <span className="flow-label">Speaks</span>
-                              <span className="font-medium">{r.points}</span>
-                            </div>
-                          )}
+
+                        {/* Mobile layout */}
+                        <div className="sm:hidden pl-2">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-sm font-medium">{r.round}</span>
+                            {(isWin || isLoss) && (
+                              <span className={`flow-badge ${isWin ? "bg-flow-accent-light text-primary" : "bg-flow-warn-light text-destructive"}`}>
+                                {isWin ? "✓ Win" : "✗ Loss"}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex gap-4 flex-wrap text-xs">
+                            {r.side && (
+                              <div className="flex flex-col gap-px">
+                                <span className="flow-label">Side</span>
+                                <span className="font-medium">{r.side}</span>
+                              </div>
+                            )}
+                            {r.opponent && (
+                              <div className="flex flex-col gap-px">
+                                <span className="flow-label">Opponent</span>
+                                <span className="font-medium">{r.opponent}</span>
+                              </div>
+                            )}
+                            {r.judge && (
+                              <div className="flex flex-col gap-px">
+                                <span className="flow-label">Judge</span>
+                                <span className="font-medium">{r.judge}</span>
+                              </div>
+                            )}
+                            {r.points && (
+                              <div className="flex flex-col gap-px">
+                                <span className="flow-label">Speaks</span>
+                                <span className="font-medium">{r.points}</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })
-              ) : (
+                    );
+                  })}
+                </div>
+              )}
+
+              {displayRounds.length === 0 && (
                 <div className="text-center py-6 text-muted-foreground text-xs">
-                  No round-by-round results found for this tournament. Results may not be posted yet.
+                  No round-by-round results found for this tournament. Results may not be posted yet, or this tournament may not have public round data.
                 </div>
               )}
             </>
