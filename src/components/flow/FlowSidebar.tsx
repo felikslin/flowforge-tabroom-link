@@ -19,7 +19,6 @@ const SECTIONS = [
     label: "My Account",
     items: [
       { id: "results" as TabId, icon: "📊", label: "Results" },
-      { id: "history" as TabId, icon: "📜", label: "History" },
     ],
   },
   {
