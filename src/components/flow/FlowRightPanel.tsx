@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
 
 interface RightPanelProps {
@@ -5,8 +6,32 @@ interface RightPanelProps {
 }
 
 export function FlowRightPanel({ onSignOut }: RightPanelProps) {
-  const { user, selectedTournament, tournaments, pairings, myRecord, myRounds, loading } = useTabroom();
+  const { user, selectedTournament, tournaments, entries, selectTournament, pairings, myRecord, myRounds, loading } = useTabroom();
   const initial = user.name[0]?.toUpperCase() || "?";
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Merge and deduplicate, sort most recent first
+  const allTournaments = [...tournaments];
+  for (const e of entries) {
+    if (!allTournaments.find((t) => t.id === e.id)) allTournaments.push(e);
+  }
+  const sortedTournaments = [...allTournaments].sort((a, b) => {
+    if (!a.dates && !b.dates) return 0;
+    if (!a.dates) return 1;
+    if (!b.dates) return -1;
+    return b.dates.localeCompare(a.dates);
+  });
 
   // Calc avg speaks from rounds
   const speaksValues = myRounds.map((r) => parseFloat(r.points)).filter((v) => !isNaN(v));
@@ -16,17 +41,55 @@ export function FlowRightPanel({ onSignOut }: RightPanelProps) {
 
   return (
     <aside className="w-[240px] flex-shrink-0 bg-card border-l border-border p-4 flex flex-col gap-5 overflow-y-auto">
-      {/* Tournament info */}
+      {/* Tournament selector */}
       <div>
         <div className="flow-label mb-2.5">Tournament</div>
-        {selectedTournament ? (
-          <div className="bg-flow-accent-light rounded-lg p-2.5 text-xs">
-            <div className="font-medium text-primary">{selectedTournament.name}</div>
-            <div className="text-muted-foreground mt-1">ID: {selectedTournament.id}</div>
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground">No tournament selected</div>
-        )}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className="w-full text-left bg-flow-accent-light rounded-lg p-2.5 text-xs cursor-pointer border border-primary/20 hover:border-primary/40 transition-colors"
+          >
+            {selectedTournament ? (
+              <>
+                <div className="font-medium text-primary truncate">{selectedTournament.name}</div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-muted-foreground">
+                    {selectedTournament.dates || `ID: ${selectedTournament.id}`}
+                  </span>
+                  <svg className={`w-2.5 h-2.5 text-muted-foreground transition-transform ${dropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 10 6" fill="none">
+                    <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+              </>
+            ) : (
+              <div className="text-muted-foreground flex items-center justify-between">
+                <span>Select tournament…</span>
+                <svg className={`w-2.5 h-2.5 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 10 6" fill="none">
+                  <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            )}
+          </button>
+
+          {dropdownOpen && sortedTournaments.length > 0 && (
+            <div className="absolute top-full mt-1 left-0 right-0 bg-card border border-border rounded-lg shadow-lg z-50 max-h-[200px] overflow-y-auto py-1">
+              {sortedTournaments.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => { selectTournament(t); setDropdownOpen(false); }}
+                  className={`w-full text-left px-2.5 py-2 text-[11px] transition-colors ${
+                    selectedTournament?.id === t.id
+                      ? "bg-flow-accent-light text-primary font-medium"
+                      : "text-foreground hover:bg-flow-surface2"
+                  }`}
+                >
+                  <div className="font-medium truncate">{t.name}</div>
+                  {t.dates && <div className="text-[10px] text-muted-foreground mt-0.5">{t.dates}</div>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Quick stats */}
