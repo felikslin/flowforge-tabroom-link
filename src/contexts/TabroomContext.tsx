@@ -45,7 +45,7 @@ interface TabroomState {
 
 const TabroomContext = createContext<TabroomState | null>(null);
 
-export function useTabroom() {
+export function useTabroom(): TabroomState {
   const ctx = useContext(TabroomContext);
   if (!ctx) throw new Error("useTabroom must be inside TabroomProvider");
   return ctx;
