@@ -53,14 +53,44 @@ export function JudgeTab() {
 
       {judgeInfo && !loading.judge && (
         <div className="flow-card">
-          <div className="text-[15px] font-medium mb-1">{judgeInfo.name}</div>
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-[15px] font-medium">{judgeInfo.name}</div>
+            {judgeInfo.tabroom_url && (
+              <a
+                href={judgeInfo.tabroom_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-primary underline hover:brightness-90 transition-all"
+              >
+                View on Tabroom ↗
+              </a>
+            )}
+          </div>
+
+          {/* Multiple results */}
+          {judgeInfo.results && judgeInfo.results.length > 0 && !judgeInfo.paradigm && (
+            <div className="mt-2">
+              <p className="text-xs text-muted-foreground mb-2">Multiple judges found — select one:</p>
+              <div className="flex flex-col gap-1.5">
+                {judgeInfo.results.map((r) => (
+                  <button
+                    key={r.judge_id}
+                    onClick={() => lookupJudge(undefined, r.judge_id)}
+                    className="text-left px-3 py-2 rounded-lg bg-flow-surface2 text-xs hover:bg-primary/10 transition-colors cursor-pointer border border-border"
+                  >
+                    {r.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Paradigm */}
           {judgeInfo.paradigm ? (
-            <div className="bg-flow-surface2 rounded-lg p-3.5 text-xs leading-[1.9] max-h-[300px] overflow-y-auto italic border-l-[3px] border-border mt-3">
+            <div className="bg-flow-surface2 rounded-lg p-3.5 text-xs leading-[1.9] max-h-[300px] overflow-y-auto italic border-l-[3px] border-border mt-3 whitespace-pre-wrap">
               {judgeInfo.paradigm}
             </div>
-          ) : (
+          ) : !judgeInfo.results?.length && (
             <div className="text-xs text-muted-foreground mt-2">
               No paradigm text found for this judge.
             </div>
