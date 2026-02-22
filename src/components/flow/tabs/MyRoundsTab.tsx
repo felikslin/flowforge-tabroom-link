@@ -24,7 +24,7 @@ function formatTime(s: number) {
 }
 
 export function MyRoundsTab({ onTabChange }: MyRoundsTabProps) {
-  const { myRounds, myRecord, pairings, coinFlip, selectedTournament, loading, errors, refreshMyRounds } = useTabroom();
+  const { user, myRounds, myRecord, pairings, coinFlip, selectedTournament, loading, errors, refreshMyRounds } = useTabroom();
   const { toast } = useToast();
 
   const hasRoundData = myRounds.length > 0;
@@ -431,37 +431,63 @@ export function MyRoundsTab({ onTabChange }: MyRoundsTabProps) {
             );
           })}
 
-          {!hasRoundData && pairings.length > 0 && (
-            <>
-              <div className="text-xs text-muted-foreground mb-3">
-                Showing current pairings (detailed round data not yet available):
+          {!hasRoundData && pairings.length > 0 && (() => {
+            const normalize = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+            const userName = user.name || "";
+            const userParts = userName.trim().split(/\s+/);
+            const userNorm = normalize(userName);
+            const lastName = userParts[userParts.length - 1] || "";
+            const lastNorm = normalize(lastName);
+            
+            const myPairings = pairings.filter((p) => {
+              const affNorm = normalize(p.aff);
+              const negNorm = normalize(p.neg);
+              // Check full name match
+              if (affNorm.includes(userNorm) || negNorm.includes(userNorm)) return true;
+              if (userNorm.includes(affNorm) || userNorm.includes(negNorm)) return true;
+              // Check last name match (common in debate codes)
+              if (lastNorm.length >= 3 && (affNorm.includes(lastNorm) || negNorm.includes(lastNorm))) return true;
+              return false;
+            });
+
+            if (myPairings.length === 0) return (
+              <div className="text-center py-8 text-muted-foreground text-xs">
+                No pairings found matching your name. Pairings may not have been posted yet.
               </div>
-              {pairings.map((p, i) => (
-                <div key={i} className="flow-card relative overflow-hidden mb-2.5">
-                  <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary" />
-                  <div className="pl-2">
-                    <div className="text-sm font-medium mb-2 tracking-[-0.2px]">
-                      {p.aff} vs. {p.neg}
-                    </div>
-                    <div className="flex gap-4 flex-wrap">
-                      {p.room && (
-                        <div className="flex flex-col gap-px">
-                          <span className="flow-label">Room</span>
-                          <span className="text-xs font-medium">{p.room}</span>
-                        </div>
-                      )}
-                      {p.judge && (
-                        <div className="flex flex-col gap-px">
-                          <span className="flow-label">Judge</span>
-                          <span className="text-xs font-medium">{p.judge}</span>
-                        </div>
-                      )}
+            );
+
+            return (
+              <>
+                <div className="text-xs text-muted-foreground mb-3">
+                  Showing your pairings (detailed round data not yet available):
+                </div>
+                {myPairings.map((p, i) => (
+                  <div key={i} className="flow-card relative overflow-hidden mb-2.5">
+                    <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary" />
+                    <div className="pl-2">
+                      <div className="text-sm font-medium mb-2 tracking-[-0.2px]">
+                        {p.aff} vs. {p.neg}
+                      </div>
+                      <div className="flex gap-4 flex-wrap">
+                        {p.room && (
+                          <div className="flex flex-col gap-px">
+                            <span className="flow-label">Room</span>
+                            <span className="text-xs font-medium">{p.room}</span>
+                          </div>
+                        )}
+                        {p.judge && (
+                          <div className="flex flex-col gap-px">
+                            <span className="flow-label">Judge</span>
+                            <span className="text-xs font-medium">{p.judge}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </>
-          )}
+                ))}
+              </>
+            );
+          })()}
 
           {!hasRoundData && pairings.length === 0 && !errors.rounds && (
             <div className="text-center py-8 text-muted-foreground text-xs">
