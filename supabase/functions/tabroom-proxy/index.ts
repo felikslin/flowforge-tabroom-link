@@ -997,16 +997,25 @@ async function handleVenueMap(body: { token: string; tourn_id: string }) {
   if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
 
   try {
-    // Try multiple pages where Tabroom might have venue/map info
     const pagesToTry = [
       `/index/tourn/index.mhtml?tourn_id=${body.tourn_id}`,
-      `/index/tourn/sides.mhtml?tourn_id=${body.tourn_id}`,
+      `/index/tourn/postings/round.mhtml?tourn_id=${body.tourn_id}`,
     ];
 
     const mapImages: string[] = [];
     let venueAddress = "";
     let venueName = "";
     let embeddedMapUrl = "";
+    let tournamentLocation = "";
+
+    // Helper: check if a URL is a Tabroom UI/system image (not a venue map)
+    const isSystemImage = (src: string): boolean => {
+      return /\/lib\/(images|css|javascript)\//i.test(src) ||
+        /tabroom-logo|nsda-blue|favicon|icon|logo|badge|pixel|spacer|tracking|avatar|arrow|button|nav|menu|header|footer|spinner|loading/i.test(src) ||
+        /\.(css|js|min\.|woff|ttf|eot)/i.test(src) ||
+        /url_settings|gear|cog|settings/i.test(src) ||
+        src.includes("1x1") || src.includes("blank.");
+    };
 
     for (const page of pagesToTry) {
       try {
@@ -1014,56 +1023,88 @@ async function handleVenueMap(body: { token: string; tourn_id: string }) {
         const html = await res.text();
         if (isLoginPage(html)) continue;
 
-        // Extract Google Maps embed
+        // Extract Google Maps embed iframe
         const iframeMatch = html.match(/<iframe[^>]*src="([^"]*(?:google\.com\/maps|maps\.google)[^"]*)"/i);
         if (iframeMatch && !embeddedMapUrl) {
           embeddedMapUrl = iframeMatch[1].replace(/&amp;/g, "&");
         }
 
-        // Extract static map images (Google Static Maps API or uploaded images)
-        const imgRegex = /<img[^>]*src="([^"]*(?:maps\.googleapis|map|venue|floor|campus|building)[^"]*)"/gi;
+        // Extract Google Maps link
+        if (!embeddedMapUrl) {
+          const mapsLink = html.match(/href="(https?:\/\/(?:www\.)?(?:google\.com\/maps|maps\.google|goo\.gl\/maps)[^"]*)"/i);
+          if (mapsLink) embeddedMapUrl = mapsLink[1].replace(/&amp;/g, "&");
+        }
+
+        // Extract static map images (Google Static Maps API)
+        const staticMapRegex = /<img[^>]*src="([^"]*maps\.googleapis\.com[^"]*)"/gi;
         let imgMatch;
-        while ((imgMatch = imgRegex.exec(html)) !== null) {
+        while ((imgMatch = staticMapRegex.exec(html)) !== null) {
           const src = imgMatch[1].replace(/&amp;/g, "&");
           if (!mapImages.includes(src)) mapImages.push(src);
         }
 
-        // Also look for any linked map images in the page
-        const linkImgRegex = /href="([^"]*(?:\.png|\.jpg|\.jpeg|\.gif|\.webp)[^"]*)"/gi;
-        while ((imgMatch = linkImgRegex.exec(html)) !== null) {
+        // Look for venue-specific uploaded images (not in /lib/)
+        const venueImgRegex = /<img[^>]*src="([^"]*(?:venue|floor|campus|building|map)[^"]*)"/gi;
+        while ((imgMatch = venueImgRegex.exec(html)) !== null) {
           const src = imgMatch[1].replace(/&amp;/g, "&");
-          if (/map|venue|floor|campus|building/i.test(src) && !mapImages.includes(src)) {
+          if (!isSystemImage(src) && !mapImages.includes(src)) {
             mapImages.push(src.startsWith("http") ? src : `${TABROOM_WEB}${src}`);
           }
         }
 
-        // Look for map images in any img tags more broadly
-        const allImgRegex = /<img[^>]*src="([^"]+\.(png|jpg|jpeg|gif|webp)[^"]*)"/gi;
-        while ((imgMatch = allImgRegex.exec(html)) !== null) {
-          const src = imgMatch[1].replace(/&amp;/g, "&");
-          // Skip tiny icons, logos, favicons
-          const isIcon = /icon|logo|favicon|avatar|badge|pixel|tracking|spacer/i.test(src);
-          const isTabroom = /tabroom\.com\/(images|static)\/(logo|favicon)/i.test(src);
-          if (!isIcon && !isTabroom && !mapImages.includes(src)) {
-            const fullSrc = src.startsWith("http") ? src : `${TABROOM_WEB}${src}`;
-            mapImages.push(fullSrc);
+        // Extract tournament location from structured content (not from <script> tags)
+        // Remove all script/style tags first for clean text extraction
+        const cleanHtml = html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "");
+
+        // Try to find venue/location in visible text content
+        if (!venueName) {
+          // Look for location in tournament header area - common patterns on Tabroom
+          const locPatterns = [
+            /class="[^"]*location[^"]*"[^>]*>([^<]{5,80})</i,
+            /(?:venue|location|hosted at|held at|site)\s*[:]\s*([A-Z][^<\n]{5,80})/i,
+            /class="[^"]*address[^"]*"[^>]*>([^<]{5,80})</i,
+          ];
+          for (const pat of locPatterns) {
+            const m = cleanHtml.match(pat);
+            if (m?.[1]) {
+              const text = m[1].replace(/\s+/g, " ").trim();
+              // Validate it looks like a real location (not JS code)
+              if (text.length > 4 && !/function|var |const |let |=>|\.href|{|}|\(|\)/i.test(text)) {
+                venueName = text;
+                break;
+              }
+            }
           }
         }
 
-        // Extract venue name/address from common patterns
-        if (!venueName) {
-          const venueMatch = html.match(/(?:venue|location|hosted at|held at)[:\s]*<[^>]*>([^<]+)/i);
-          if (venueMatch) venueName = venueMatch[1].trim();
-        }
+        // Extract address - must look like a real address, not code
         if (!venueAddress) {
-          const addrMatch = html.match(/(?:address|location)[:\s]*([^<]{10,100})/i);
-          if (addrMatch) venueAddress = addrMatch[1].trim();
+          const addrPatterns = [
+            /class="[^"]*addr[^"]*"[^>]*>([^<]{10,120})</i,
+            /(\d+\s+[A-Z][a-zA-Z\s]+(?:St|Ave|Blvd|Dr|Rd|Ln|Way|Ct|Pkwy|Hwy|Circle|Place|Drive|Road|Street|Avenue|Boulevard)[^<]{0,60})/,
+          ];
+          for (const pat of addrPatterns) {
+            const m = cleanHtml.match(pat);
+            if (m?.[1]) {
+              const text = m[1].replace(/\s+/g, " ").trim();
+              if (!/function|var |const |let |=>|\.href|{|}|\(|\)/i.test(text)) {
+                venueAddress = text;
+                break;
+              }
+            }
+          }
         }
 
-        // Extract Google Maps link for external navigation
-        if (!embeddedMapUrl) {
-          const mapsLink = html.match(/href="(https?:\/\/(?:www\.)?(?:google\.com\/maps|maps\.google|goo\.gl\/maps)[^"]*)"/i);
-          if (mapsLink) embeddedMapUrl = mapsLink[1].replace(/&amp;/g, "&");
+        // Try to get tournament location from the page header (city, state)
+        if (!tournamentLocation) {
+          const cityMatch = cleanHtml.match(/class="[^"]*city[^"]*"[^>]*>([^<]+)</i) ||
+                           cleanHtml.match(/>,?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,?\s+[A-Z]{2})\s*</);
+          if (cityMatch?.[1]) {
+            const text = cityMatch[1].trim();
+            if (text.length > 3 && text.length < 60 && !/function|var |const /i.test(text)) {
+              tournamentLocation = text;
+            }
+          }
         }
       } catch (e) {
         console.log(`Venue map: Failed to fetch ${page}:`, (e as Error).message);
@@ -1074,7 +1115,7 @@ async function handleVenueMap(body: { token: string; tourn_id: string }) {
       map_images: mapImages,
       embedded_map_url: embeddedMapUrl || null,
       venue_name: venueName || null,
-      venue_address: venueAddress || null,
+      venue_address: venueAddress || tournamentLocation || null,
       total_images: mapImages.length,
     });
   } catch (e) {
