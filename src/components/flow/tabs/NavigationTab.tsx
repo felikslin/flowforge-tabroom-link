@@ -99,6 +99,11 @@ export function NavigationTab() {
   const hasMap = venueData && (venueData.map_images.length > 0 || venueData.embedded_map_url);
   const activeImage = venueData?.map_images[activeImageIdx];
 
+  // Always generate a Google Maps embed as fallback using tournament name
+  const fallbackMapQuery = venueData?.venue_address || venueData?.venue_name || tournamentName;
+  const fallbackEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(fallbackMapQuery)}&t=&z=15&ie=UTF8&iwloc=&output=embed`;
+  const embedUrl = venueData?.embedded_map_url || fallbackEmbedUrl;
+
   return (
     <div className="animate-fadein">
       <h2 className="font-serif text-[26px] font-extralight tracking-[-1px] italic mb-0.5">
@@ -183,37 +188,13 @@ export function NavigationTab() {
         </div>
       )}
 
-      {/* No map found */}
-      {!loading && !error && venueData && !hasMap && (
-        <div className="flow-card text-center py-10">
-          <span className="text-3xl mb-2 block">🗺️</span>
-          <p className="text-[12px] font-medium mb-1">No venue map available</p>
-          <p className="text-[10px] text-muted-foreground mb-3">
-            This tournament doesn't have a map on its Tabroom page
-          </p>
-          {venueData.venue_name && (
-            <p className="text-[11px] text-foreground mb-1">📍 {venueData.venue_name}</p>
-          )}
-          {venueData.venue_address && (
-            <a
-              href={`https://maps.google.com?q=${encodeURIComponent(venueData.venue_address)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-[11px] font-medium no-underline mt-2"
-            >
-              ↗ Open in Google Maps
-            </a>
-          )}
-        </div>
-      )}
-
-      {/* Embedded Google Map */}
-      {!loading && venueData?.embedded_map_url && (
+      {/* Google Maps embed - always show when loaded */}
+      {!loading && !error && venueData && (
         <div className="mb-3">
           <div className="flow-label mb-1.5">Venue Map</div>
           <div className="relative w-full aspect-[16/10] rounded-lg border border-border overflow-hidden">
             <iframe
-              src={venueData.embedded_map_url}
+              src={embedUrl}
               className="absolute inset-0 w-full h-full"
               allowFullScreen
               loading="lazy"
@@ -221,10 +202,14 @@ export function NavigationTab() {
               title="Venue Map"
             />
           </div>
+          {venueData.venue_name && (
+            <p className="text-[11px] text-foreground mt-2">📍 {venueData.venue_name}</p>
+          )}
+          {venueData.venue_address && (
+            <p className="text-[10px] text-muted-foreground mt-0.5">{venueData.venue_address}</p>
+          )}
         </div>
       )}
-
-      {/* Map images with zoom/pan */}
       {!loading && venueData && venueData.map_images.length > 0 && (
         <div>
           {/* Image selector if multiple */}
@@ -297,34 +282,8 @@ export function NavigationTab() {
         </div>
       )}
 
-      {/* Venue info & external link */}
-      {!loading && venueData && (venueData.venue_name || venueData.venue_address) && (
-        <div className="mt-3 flow-card">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flow-label">Venue</div>
-              {venueData.venue_name && (
-                <div className="text-[13px] font-medium">{venueData.venue_name}</div>
-              )}
-              {venueData.venue_address && (
-                <div className="text-[11px] text-muted-foreground mt-0.5">{venueData.venue_address}</div>
-              )}
-            </div>
-            <a
-              href={`https://maps.google.com?q=${encodeURIComponent(
-                venueData.venue_address || venueData.venue_name || tournamentName
-              )}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 bg-primary text-primary-foreground px-2.5 py-1.5 rounded-md text-[11px] font-medium no-underline flex-shrink-0"
-            >
-              ↗ Google Maps
-            </a>
-          </div>
-        </div>
-      )}
 
-      {/* Selected room info */}
+
       {selectedRoom && (
         <div className="mt-3 flow-card">
           <div className="flex items-center justify-between">
