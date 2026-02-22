@@ -992,6 +992,96 @@ async function handlePastResults(body: { person_id?: string; token?: string }) {
   }
 }
 
+// ─── VENUE MAP ───────────────────────────────────────────
+async function handleVenueMap(body: { token: string; tourn_id: string }) {
+  if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
+
+  try {
+    // Try multiple pages where Tabroom might have venue/map info
+    const pagesToTry = [
+      `/index/tourn/index.mhtml?tourn_id=${body.tourn_id}`,
+      `/index/tourn/sides.mhtml?tourn_id=${body.tourn_id}`,
+    ];
+
+    const mapImages: string[] = [];
+    let venueAddress = "";
+    let venueName = "";
+    let embeddedMapUrl = "";
+
+    for (const page of pagesToTry) {
+      try {
+        const res = await tabroomFetch(page, body.token);
+        const html = await res.text();
+        if (isLoginPage(html)) continue;
+
+        // Extract Google Maps embed
+        const iframeMatch = html.match(/<iframe[^>]*src="([^"]*(?:google\.com\/maps|maps\.google)[^"]*)"/i);
+        if (iframeMatch && !embeddedMapUrl) {
+          embeddedMapUrl = iframeMatch[1].replace(/&amp;/g, "&");
+        }
+
+        // Extract static map images (Google Static Maps API or uploaded images)
+        const imgRegex = /<img[^>]*src="([^"]*(?:maps\.googleapis|map|venue|floor|campus|building)[^"]*)"/gi;
+        let imgMatch;
+        while ((imgMatch = imgRegex.exec(html)) !== null) {
+          const src = imgMatch[1].replace(/&amp;/g, "&");
+          if (!mapImages.includes(src)) mapImages.push(src);
+        }
+
+        // Also look for any linked map images in the page
+        const linkImgRegex = /href="([^"]*(?:\.png|\.jpg|\.jpeg|\.gif|\.webp)[^"]*)"/gi;
+        while ((imgMatch = linkImgRegex.exec(html)) !== null) {
+          const src = imgMatch[1].replace(/&amp;/g, "&");
+          if (/map|venue|floor|campus|building/i.test(src) && !mapImages.includes(src)) {
+            mapImages.push(src.startsWith("http") ? src : `${TABROOM_WEB}${src}`);
+          }
+        }
+
+        // Look for map images in any img tags more broadly
+        const allImgRegex = /<img[^>]*src="([^"]+\.(png|jpg|jpeg|gif|webp)[^"]*)"/gi;
+        while ((imgMatch = allImgRegex.exec(html)) !== null) {
+          const src = imgMatch[1].replace(/&amp;/g, "&");
+          // Skip tiny icons, logos, favicons
+          const isIcon = /icon|logo|favicon|avatar|badge|pixel|tracking|spacer/i.test(src);
+          const isTabroom = /tabroom\.com\/(images|static)\/(logo|favicon)/i.test(src);
+          if (!isIcon && !isTabroom && !mapImages.includes(src)) {
+            const fullSrc = src.startsWith("http") ? src : `${TABROOM_WEB}${src}`;
+            mapImages.push(fullSrc);
+          }
+        }
+
+        // Extract venue name/address from common patterns
+        if (!venueName) {
+          const venueMatch = html.match(/(?:venue|location|hosted at|held at)[:\s]*<[^>]*>([^<]+)/i);
+          if (venueMatch) venueName = venueMatch[1].trim();
+        }
+        if (!venueAddress) {
+          const addrMatch = html.match(/(?:address|location)[:\s]*([^<]{10,100})/i);
+          if (addrMatch) venueAddress = addrMatch[1].trim();
+        }
+
+        // Extract Google Maps link for external navigation
+        if (!embeddedMapUrl) {
+          const mapsLink = html.match(/href="(https?:\/\/(?:www\.)?(?:google\.com\/maps|maps\.google|goo\.gl\/maps)[^"]*)"/i);
+          if (mapsLink) embeddedMapUrl = mapsLink[1].replace(/&amp;/g, "&");
+        }
+      } catch (e) {
+        console.log(`Venue map: Failed to fetch ${page}:`, (e as Error).message);
+      }
+    }
+
+    return json({
+      map_images: mapImages,
+      embedded_map_url: embeddedMapUrl || null,
+      venue_name: venueName || null,
+      venue_address: venueAddress || null,
+      total_images: mapImages.length,
+    });
+  } catch (e) {
+    return err(`Failed to fetch venue map: ${(e as Error).message}`, 502);
+  }
+}
+
 // ─── ROUTER ──────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -1014,6 +1104,7 @@ serve(async (req) => {
     case "entries": return handleEntries(body as any);
     case "upcoming": return handleUpcoming();
     case "past-results": return handlePastResults(body as any);
+    case "venue-map": return handleVenueMap(body as any);
     case "debug-api": {
       const token = body.token as string;
       const tournId = body.tourn_id as string;

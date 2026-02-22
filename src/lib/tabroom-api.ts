@@ -72,6 +72,13 @@ export interface TabroomPastResult {
   dates?: string;
   location?: string;
 }
+export interface TabroomVenueMap {
+  map_images: string[];
+  embedded_map_url: string | null;
+  venue_name: string | null;
+  venue_address: string | null;
+  total_images: number;
+}
 
 // ─── API Functions ───────────────────────────────────────
 
@@ -109,4 +116,8 @@ export async function tabroomGetUpcoming(): Promise<{ tournaments: TabroomTourna
 
 export async function tabroomGetPastResults(personId?: string, token?: string): Promise<{ results: TabroomPastResult[]; total: number; html_preview?: string }> {
   return callTabroom("past-results", { person_id: personId, token });
+}
+
+export async function tabroomGetVenueMap(token: string, tournId: string): Promise<TabroomVenueMap> {
+  return callTabroom<TabroomVenueMap>("venue-map", { token, tourn_id: tournId });
 }
