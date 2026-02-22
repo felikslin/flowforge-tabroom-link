@@ -323,11 +323,35 @@ async function handleJudge(body: { judge_id?: string; judge_name?: string; token
 
 // ─── FIND ENTRY ID ───────────────────────────────────────
 async function findEntryId(token: string, tournId: string): Promise<string | null> {
-  // Method 1 (BEST): Student tournament page — only shows the logged-in user's own entries
+  // Method 1: Student index page — scan all links for this tournament's entry_id
+  try {
+    const res = await tabroomFetch(`/user/student/index.mhtml`, token);
+    const html = await res.text();
+    if (!isLoginPage(html)) {
+      // Look for entry_id in links related to this tournament
+      const entryLinkRegex = new RegExp(`tourn_id=${tournId}[^"]*entry_id=(\\d+)`, 'g');
+      const match = entryLinkRegex.exec(html);
+      if (match) {
+        console.log(`findEntryId: Found ${match[1]} via student/index link`);
+        return match[1];
+      }
+      // Also try reverse order: entry_id before tourn_id
+      const reverseRegex = new RegExp(`entry_id=(\\d+)[^"]*tourn_id=${tournId}`, 'g');
+      const rMatch = reverseRegex.exec(html);
+      if (rMatch) {
+        console.log(`findEntryId: Found ${rMatch[1]} via student/index reverse link`);
+        return rMatch[1];
+      }
+    }
+  } catch (e) {
+    console.log("findEntryId student/index failed:", (e as Error).message);
+  }
+
+  // Method 2: Student tournament page
   try {
     const res = await tabroomFetch(`/user/student/tourn.mhtml?tourn_id=${tournId}`, token);
     const html = await res.text();
-    if (!isLoginPage(html)) {
+    if (!isLoginPage(html) && !html.includes("404 Not Found")) {
       const entryMatch = html.match(/entry_id=(\d+)/);
       if (entryMatch) {
         console.log(`findEntryId: Found ${entryMatch[1]} via student/tourn`);
@@ -338,7 +362,7 @@ async function findEntryId(token: string, tournId: string): Promise<string | nul
     console.log("findEntryId student/tourn failed:", (e as Error).message);
   }
 
-  // Method 2: Mason API to get the user's entry for this tournament
+  // Method 3: Mason API
   try {
     const decodedToken = decodeURIComponent(token);
     const cookieStr = `TabroomToken=${decodedToken}`;
@@ -348,7 +372,6 @@ async function findEntryId(token: string, tournId: string): Promise<string | nul
     });
     if (res.ok) {
       const data = await res.json();
-      console.log(`Mason API /me response:`, JSON.stringify(data).substring(0, 500));
       if (data?.entry?.id) return String(data.entry.id);
       if (data?.entries?.[0]?.id) return String(data.entries[0].id);
       const jsonStr = JSON.stringify(data);
@@ -361,23 +384,6 @@ async function findEntryId(token: string, tournId: string): Promise<string | nul
     console.log("Mason API failed:", (e as Error).message);
   }
 
-  // Method 3: Student round_results page
-  try {
-    const res = await tabroomFetch(`/user/student/round_results.mhtml?tourn_id=${tournId}`, token);
-    const html = await res.text();
-    if (!isLoginPage(html)) {
-      const entryMatch = html.match(/entry_id=(\d+)/);
-      if (entryMatch) {
-        console.log(`findEntryId: Found ${entryMatch[1]} via student/round_results`);
-        return entryMatch[1];
-      }
-    }
-  } catch (e) {
-    console.log("findEntryId student/round_results failed:", (e as Error).message);
-  }
-
-  // NOTE: We intentionally do NOT check the public postings page, as it returns
-  // random entries that may not belong to the logged-in user.
   console.log(`findEntryId: No entry found for tourn ${tournId}`);
   return null;
 }
@@ -433,7 +439,7 @@ function parseRoundsFromHtml(html: string): Array<Record<string, string>> {
   return rounds;
 }
 
-async function handleBallots(body: { token: string; tourn_id: string; entry_id?: string }) {
+async function handleBallots(body: { token: string; tourn_id: string; entry_id?: string; entry_name?: string }) {
   if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
 
   try {
@@ -449,41 +455,113 @@ async function handleBallots(body: { token: string; tourn_id: string; entry_id?:
       const path = `/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}&entry_id=${entryId}`;
       const res = await tabroomFetch(path, body.token);
       const html = await res.text();
-      if (!html.includes("Invalid Entry ID") && !isLoginPage(html)) {
+      if (!html.includes("Invalid Entry ID") && !isLoginPage(html) && !html.includes("404 Not Found")) {
         pages.push(html);
       }
     }
 
-    // Strategy 2: Student round results page (authenticated, user-specific)
+    // Strategy 2: Public results pages — find event_results and entry_record links
     if (pages.length === 0) {
       try {
-        const res = await tabroomFetch(`/user/student/round_results.mhtml?tourn_id=${body.tourn_id}`, body.token);
-        const html = await res.text();
-        if (!isLoginPage(html)) pages.push(html);
+        const indexRes = await tabroomFetch(`/index/tourn/results/index.mhtml?tourn_id=${body.tourn_id}`, body.token);
+        const indexHtml = await indexRes.text();
+        if (!isLoginPage(indexHtml) && !indexHtml.includes("404 Not Found")) {
+          // Collect all result page links
+          const resultLinks: string[] = [];
+          const seenLinks = new Set<string>();
+          
+          // Match event_results, round_results, entry_record, and other result links
+          const allLinkRegex = /href="([^"]*(?:event_results|round_results|entry_record|entry_ballots)[^"]*)"/g;
+          let lm;
+          while ((lm = allLinkRegex.exec(indexHtml)) !== null) {
+            const link = lm[1];
+            if (!seenLinks.has(link)) {
+              seenLinks.add(link);
+              resultLinks.push(link);
+            }
+          }
+
+          console.log(`Results index found ${resultLinks.length} links for tourn ${body.tourn_id}`);
+          
+          // Prioritize event_results pages (contain full entry records with round breakdowns)
+          const eventResultLinks = resultLinks.filter(l => l.includes("event_results"));
+          const entryRecordLinks = resultLinks.filter(l => l.includes("entry_record"));
+          const roundResultLinks = resultLinks.filter(l => l.includes("round_results"));
+          
+          // Try event_results first (best for finding user's full record)
+          const linksToFetch = [
+            ...eventResultLinks.slice(0, 2),
+            ...entryRecordLinks.slice(0, 3),
+            ...roundResultLinks.slice(0, 2),
+          ].slice(0, 5);
+          
+          for (const link of linksToFetch) {
+            try {
+              const fullLink = link.startsWith("http") ? link : `${TABROOM_WEB}${link}`;
+              console.log(`Fetching result link: ${fullLink.substring(0, 200)}`);
+              const res = await tabroomFetch(fullLink, body.token);
+              const html = await res.text();
+              const isLogin = isLoginPage(html);
+              const is404 = html.includes("404 Not Found");
+              console.log(`Result page: login=${isLogin}, 404=${is404}, len=${html.length}, tables=${(html.match(/<table/g) || []).length}`);
+              // Log first table content for debugging
+              const firstTable = html.match(/<table[^>]*>([\s\S]*?)<\/table>/i);
+              if (firstTable) {
+                console.log(`First table snippet: ${firstTable[1].substring(0, 500).replace(/\s+/g, ' ')}`);
+              }
+              // Extract entry_record links from this page
+              const entryRecordLinksFromPage = html.match(/entry_record[^"]*entry_id=(\d+)/g) || [];
+              console.log(`Found ${entryRecordLinksFromPage.length} entry_record links on page`);
+              
+              if (!isLogin && !is404) {
+                // Try to find entry_record links and fetch user's specific record
+                const entryIdMatches = [...new Set((html.match(/entry_id=(\d+)/g) || []).map((m: string) => m.replace('entry_id=', '')))];
+                if (entryIdMatches.length > 0) {
+                  console.log(`Found ${entryIdMatches.length} entry_ids on results page, trying first 10`);
+                  for (const eid of entryIdMatches.slice(0, 10)) {
+                    try {
+                      const erRes = await tabroomFetch(
+                        `/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}&entry_id=${eid}`,
+                        body.token
+                      );
+                      const erHtml = await erRes.text();
+                      if (!isLoginPage(erHtml) && !erHtml.includes("404 Not Found")) {
+                        const parsed = parseRoundsFromHtml(erHtml);
+                        if (parsed.length > 0) {
+                          console.log(`Found ${parsed.length} rounds for entry_id ${eid}`);
+                          pages.push(erHtml);
+                          break;
+                        }
+                      }
+                    } catch { /* skip */ }
+                  }
+                } else {
+                  pages.push(html);
+                }
+              }
+            } catch (e) { 
+              console.log(`Error fetching result link: ${(e as Error).message}`);
+            }
+          }
+          
+          // If still no pages with rounds, use the index page itself
+          if (pages.length === 0 && indexHtml.includes("<table")) {
+            pages.push(indexHtml);
+          }
+        }
       } catch (e) {
-        console.log("round_results fallback failed:", (e as Error).message);
+        console.log("Public results fallback failed:", (e as Error).message);
       }
     }
 
-    // Strategy 3: Student tournament page (has some round info)
+    // Strategy 3: Student tournament page
     if (pages.length === 0) {
       try {
         const res = await tabroomFetch(`/user/student/tourn.mhtml?tourn_id=${body.tourn_id}`, body.token);
         const html = await res.text();
-        if (!isLoginPage(html)) pages.push(html);
+        if (!isLoginPage(html) && !html.includes("404 Not Found")) pages.push(html);
       } catch (e) {
         console.log("student/tourn fallback failed:", (e as Error).message);
-      }
-    }
-
-    // Strategy 4: Public results page (last resort)
-    if (pages.length === 0) {
-      try {
-        const res = await tabroomFetch(`/index/tourn/results/index.mhtml?tourn_id=${body.tourn_id}`, body.token);
-        const html = await res.text();
-        if (!isLoginPage(html)) pages.push(html);
-      } catch (e) {
-        console.log("Public results fallback failed:", (e as Error).message);
       }
     }
 
@@ -498,9 +576,48 @@ async function handleBallots(body: { token: string; tourn_id: string; entry_id?:
       }
     }
 
+    // If we still have no rounds but have pages, try to find entry_id from the pages and fetch entry_record
+    if (allRounds.length === 0 && pages.length > 0 && !entryId) {
+      for (const html of pages) {
+        // Look for entry_id links that might be the user's based on entry_name
+        const entryRegex = /entry_id=(\d+)/g;
+        const entryIds = new Set<string>();
+        let em;
+        while ((em = entryRegex.exec(html)) !== null) {
+          entryIds.add(em[1]);
+        }
+        // Try each entry_id (limit to first 5 to avoid excessive requests)
+        for (const eid of [...entryIds].slice(0, 5)) {
+          try {
+            const res = await tabroomFetch(
+              `/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}&entry_id=${eid}`, 
+              body.token
+            );
+            const html2 = await res.text();
+            if (!html2.includes("404 Not Found") && !isLoginPage(html2)) {
+              const parsed = parseRoundsFromHtml(html2);
+              // If entry_name provided, check if this is the right entry
+              if (body.entry_name) {
+                const nameNorm = body.entry_name.toLowerCase();
+                if (html2.toLowerCase().includes(nameNorm)) {
+                  allRounds = parsed;
+                  bestHtml = html2;
+                  break;
+                }
+              } else if (parsed.length > allRounds.length) {
+                allRounds = parsed;
+                bestHtml = html2;
+              }
+            }
+          } catch { /* skip */ }
+        }
+      }
+    }
+
     // Also extract placement info from the page
     let placement: string | null = null;
-    for (const html of pages) {
+    for (const html of [bestHtml, ...pages]) {
+      if (!html) continue;
       const placeMatch = html.match(/(?:place|finish|result|rank)[^<]*?:\s*([^<\n]+)/i) ||
                         html.match(/(?:1st|2nd|3rd|\d+th)\s+(?:place|speaker|seed)/i) ||
                         html.match(/class="[^"]*champion[^"]*"[^>]*>([^<]+)/i);
@@ -532,37 +649,46 @@ async function handleMyRounds(body: { token: string; tourn_id: string }) {
     if (entryId) {
       const res = await tabroomFetch(`/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}&entry_id=${entryId}`, body.token);
       const html = await res.text();
-      if (!html.includes("Invalid Entry ID") && !isLoginPage(html)) pages.push(html);
+      if (!html.includes("Invalid Entry ID") && !isLoginPage(html) && !html.includes("404 Not Found")) pages.push(html);
     }
 
-    // Also try student round_results page
+    // Try public results pages with event links
     if (pages.length === 0) {
       try {
-        const res = await tabroomFetch(`/user/student/round_results.mhtml?tourn_id=${body.tourn_id}`, body.token);
-        const html = await res.text();
-        if (!isLoginPage(html)) pages.push(html);
+        const indexRes = await tabroomFetch(`/index/tourn/results/index.mhtml?tourn_id=${body.tourn_id}`, body.token);
+        const indexHtml = await indexRes.text();
+        if (!isLoginPage(indexHtml) && !indexHtml.includes("404 Not Found")) {
+          const eventLinks: string[] = [];
+          const linkRegex = /href="([^"]*(?:round_results|entry_ballots)[^"]*event_id=\d+[^"]*)"/g;
+          let lm;
+          while ((lm = linkRegex.exec(indexHtml)) !== null) {
+            eventLinks.push(lm[1]);
+          }
+          for (const link of eventLinks.slice(0, 3)) {
+            try {
+              const fullLink = link.startsWith("http") ? link : `${TABROOM_WEB}${link}`;
+              const res = await tabroomFetch(fullLink, body.token);
+              const html = await res.text();
+              if (!isLoginPage(html) && !html.includes("404 Not Found")) pages.push(html);
+            } catch { /* skip */ }
+          }
+          if (eventLinks.length === 0 && indexHtml.includes("<table")) {
+            pages.push(indexHtml);
+          }
+        }
       } catch (e) {
-        console.log("MyRounds round_results fallback failed:", (e as Error).message);
+        console.log("MyRounds public results fallback failed:", (e as Error).message);
       }
     }
 
+    // Try student tournament page as last resort
     if (pages.length === 0) {
       try {
         const res = await tabroomFetch(`/user/student/tourn.mhtml?tourn_id=${body.tourn_id}`, body.token);
         const html = await res.text();
-        if (!isLoginPage(html)) pages.push(html);
+        if (!isLoginPage(html) && !html.includes("404 Not Found")) pages.push(html);
       } catch (e) {
         console.log("MyRounds student/tourn fallback failed:", (e as Error).message);
-      }
-    }
-
-    if (pages.length === 0) {
-      try {
-        const res = await tabroomFetch(`/index/tourn/results/index.mhtml?tourn_id=${body.tourn_id}`, body.token);
-        const html = await res.text();
-        if (!isLoginPage(html)) pages.push(html);
-      } catch (e) {
-        console.log("MyRounds results fallback failed:", (e as Error).message);
       }
     }
 

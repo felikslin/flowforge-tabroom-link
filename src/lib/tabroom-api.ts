@@ -89,8 +89,8 @@ export async function tabroomGetJudge(judgeId?: string, judgeName?: string, toke
   return callTabroom<TabroomJudgeInfo>("judge", { judge_id: judgeId, judge_name: judgeName, token });
 }
 
-export async function tabroomGetBallots(token: string, tournId: string, entryId?: string): Promise<{ rounds: TabroomRound[]; total: number; html_preview?: string }> {
-  return callTabroom("ballots", { token, tourn_id: tournId, entry_id: entryId });
+export async function tabroomGetBallots(token: string, tournId: string, entryId?: string, entryName?: string): Promise<{ rounds: TabroomRound[]; total: number; html_preview?: string }> {
+  return callTabroom("ballots", { token, tourn_id: tournId, entry_id: entryId, entry_name: entryName });
 }
 
 export async function tabroomGetMyRounds(token: string, tournId: string): Promise<{ rounds: TabroomRound[]; record: { wins: number; losses: number }; total: number; html_preview?: string }> {
