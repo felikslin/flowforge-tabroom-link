@@ -56,8 +56,8 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
   const [selectedTournament, setSelectedTournament] = useState<TabroomTournament | null>(null);
   const [pairings, setPairings] = useState<TabroomPairing[]>([]);
   const [coinFlip, setCoinFlip] = useState<TabroomCoinFlip | null>(null);
-  const [ballots, setBallots] = useState<TabroomRound[]>([]);
-  const [myRounds, setMyRounds] = useState<TabroomRound[]>([]);
+  const [ballots, setBallots] = useState<(TabroomRound & { tournament_name?: string })[]>([]);
+  const [myRounds, setMyRounds] = useState<(TabroomRound & { tournament_name?: string })[]>([]);
   const [myRecord, setMyRecord] = useState({ wins: 0, losses: 0 });
   const [judgeInfo, setJudgeInfo] = useState<TabroomJudgeInfo | null>(null);
   const [entries, setEntries] = useState<TabroomTournament[]>([]);
@@ -125,19 +125,34 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
 
   useEffect(() => { if (selectedTournament) refreshMyRounds(); }, [selectedTournament, refreshMyRounds]);
 
-  // Ballots
+  // Ballots — fetch across all tournaments
   const refreshBallots = useCallback(async () => {
-    if (!selectedTournament) return;
+    const tourns = tournaments.length > 0 ? tournaments : selectedTournament ? [selectedTournament] : [];
+    if (tourns.length === 0) return;
     setLoad("ballots", true); setErr("ballots", null);
     try {
-      const res = await tabroomGetBallots(user.token, selectedTournament.id);
-      setBallots(res.rounds || []);
-      setHtmlPreviews((h) => ({ ...h, ballots: res.html_preview }));
+      const results = await Promise.allSettled(
+        tourns.map((t) => tabroomGetBallots(user.token, t.id))
+      );
+      const allBallots: (TabroomRound & { tournament_name?: string })[] = [];
+      let htmlPreview = "";
+      results.forEach((r, i) => {
+        if (r.status === "fulfilled") {
+          const rounds = (r.value.rounds || []).map((rd: TabroomRound) => ({
+            ...rd,
+            tournament_name: tourns[i].name,
+          }));
+          allBallots.push(...rounds);
+          if (r.value.html_preview) htmlPreview += r.value.html_preview;
+        }
+      });
+      setBallots(allBallots);
+      setHtmlPreviews((h) => ({ ...h, ballots: htmlPreview || undefined }));
     } catch (err: any) { setErr("ballots", err.message); }
     finally { setLoad("ballots", false); }
-  }, [user.token, selectedTournament]);
+  }, [user.token, tournaments, selectedTournament]);
 
-  useEffect(() => { if (selectedTournament) refreshBallots(); }, [selectedTournament, refreshBallots]);
+  useEffect(() => { if (tournaments.length > 0 || selectedTournament) refreshBallots(); }, [tournaments, selectedTournament, refreshBallots]);
 
   // Entries
   const refreshEntries = useCallback(async () => {
