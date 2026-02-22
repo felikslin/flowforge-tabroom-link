@@ -21,33 +21,15 @@ function err(msg: string, status = 400) {
 
 async function tabroomFetch(path: string, token: string, options: RequestInit = {}): Promise<Response> {
   const url = path.startsWith("http") ? path : `${TABROOM_WEB}${path}`;
-  // Decode token if URL-encoded for cookie use
   const decodedToken = decodeURIComponent(token);
   const cookieStr = `TabroomToken=${decodedToken}`;
   
-  // Manual redirect following to preserve cookie across redirects
-  let allCookies = cookieStr;
-  let res = await fetch(url, { ...options, headers: { Cookie: allCookies, ...(options.headers || {}) }, redirect: "manual" });
-  let redirectCount = 0;
-  while ((res.status === 301 || res.status === 302 || res.status === 303 || res.status === 307) && redirectCount < 5) {
-    const location = res.headers.get("location");
-    if (!location) break;
-    // Capture any new cookies from the redirect response
-    const setCookies = res.headers.getSetCookie?.() || [];
-    for (const sc of setCookies) {
-      const cookiePart = sc.split(";")[0];
-      if (cookiePart) allCookies += `; ${cookiePart}`;
-    }
-    const consumedBody = await res.text(); // consume body to allow next fetch
-    // Don't follow redirects to login page
-    if (location.includes("/user/login/login.mhtml") || location.includes("msg=")) {
-      // Return a fresh response so callers can still read the body
-      return new Response(consumedBody, { status: res.status, headers: res.headers });
-    }
-    const nextUrl = location.startsWith("http") ? location : `${TABROOM_WEB}${location}`;
-    res = await fetch(nextUrl, { headers: { Cookie: allCookies }, redirect: "manual" });
-    redirectCount++;
-  }
+  // Use redirect: "follow" for simplicity — cookies are preserved on same-origin redirects
+  const res = await fetch(url, {
+    ...options,
+    headers: { Cookie: cookieStr, ...(options.headers || {}) },
+    redirect: "follow",
+  });
   return res;
 }
 
@@ -339,23 +321,96 @@ async function handleJudge(body: { judge_id?: string; judge_name?: string; token
   }
 }
 
+// ─── FIND ENTRY ID ───────────────────────────────────────
+async function findEntryId(token: string, tournId: string): Promise<string | null> {
+  // Method 1: Try the postings index page — look for entry_record or entry_id links
+  try {
+    const res = await tabroomFetch(`/index/tourn/postings/index.mhtml?tourn_id=${tournId}`, token);
+    const html = await res.text();
+    const entryMatch = html.match(/entry_id=(\d+)/);
+    if (entryMatch) return entryMatch[1];
+    // Look for "Your Entry" or similar self-referencing links
+    const selfMatch = html.match(/entry_record[^"]*entry_id=(\d+)/i);
+    if (selfMatch) return selfMatch[1];
+  } catch (e) {
+    console.log("findEntryId postings failed:", (e as Error).message);
+  }
+  
+  // Method 2: Try Mason API to get the user's entry for this tournament
+  try {
+    const decodedToken = decodeURIComponent(token);
+    const cookieStr = `TabroomToken=${decodedToken}`;
+    const res = await fetch(`https://masonapi.tabroom.com/v1/tourn/${tournId}/me`, {
+      headers: { Cookie: cookieStr },
+      redirect: "follow",
+    });
+    if (res.ok) {
+      const data = await res.json();
+      console.log(`Mason API /me response:`, JSON.stringify(data).substring(0, 500));
+      if (data?.entry?.id) return String(data.entry.id);
+      if (data?.entries?.[0]?.id) return String(data.entries[0].id);
+      // Try to find entry_id in any nested structure
+      const jsonStr = JSON.stringify(data);
+      const entryMatch = jsonStr.match(/"entry_id"\s*:\s*(\d+)/);
+      if (entryMatch) return entryMatch[1];
+      const idMatch = jsonStr.match(/"id"\s*:\s*(\d+)/);
+      if (data?.entry || data?.entries) {
+        if (idMatch) return idMatch[1];
+      }
+    } else {
+      console.log(`Mason API /me returned ${res.status}`);
+    }
+  } catch (e) {
+    console.log("Mason API failed:", (e as Error).message);
+  }
+
+  // Method 3: Try the student tournament-specific page
+  try {
+    const res = await tabroomFetch(`/user/student/tourn.mhtml?tourn_id=${tournId}`, token);
+    const html = await res.text();
+    const entryMatch = html.match(/entry_id=(\d+)/);
+    if (entryMatch) return entryMatch[1];
+  } catch (e) {
+    console.log("findEntryId student/tourn failed:", (e as Error).message);
+  }
+
+  return null;
+}
+
 // ─── BALLOTS ─────────────────────────────────────────────
 async function handleBallots(body: { token: string; tourn_id: string; entry_id?: string }) {
   if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
 
   try {
-    let path = `/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}`;
-    if (body.entry_id) path += `&entry_id=${body.entry_id}`;
+    // Strategy 1: Try entry_record with discovered entry_id
+    let entryId = body.entry_id;
+    if (!entryId) {
+      entryId = await findEntryId(body.token, body.tourn_id) || undefined;
+    }
+    
+    let html = "";
+    
+    if (entryId) {
+      const path = `/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}&entry_id=${entryId}`;
+      const res = await tabroomFetch(path, body.token);
+      html = await res.text();
+    }
+    
+    // Strategy 2: If no entry_id or entry_record failed, try public results page
+    if (!entryId || html.includes("Invalid Entry ID")) {
+      try {
+        const res = await tabroomFetch(`/index/tourn/results/index.mhtml?tourn_id=${body.tourn_id}`, body.token);
+        html = await res.text();
+      } catch (e) {
+        console.log("Public results fallback failed:", (e as Error).message);
+      }
+    }
 
-    const res = await tabroomFetch(path, body.token);
-    const html = await res.text();
-
-    // Detect expired session
     if (isLoginPage(html)) {
       return json({ rounds: [], total: 0, error: "Session expired. Please sign out and back in." });
     }
 
-    // Parse round results from ballots page
+    // Parse round results
     const rounds: Array<Record<string, unknown>> = [];
     const roundRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
     let match;
@@ -363,27 +418,18 @@ async function handleBallots(body: { token: string; tourn_id: string; entry_id?:
       const row = match[1];
       const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/g) || [];
       const cellText = cells.map((c: string) => c.replace(/<[^>]+>/g, "").trim());
-      // Typical ballot table: Round, Side, Opponent, Judge, Decision, Points
       if (cellText.length >= 4) {
         const roundLabel = cellText[0];
         if (roundLabel && /round|rd|r\d|elim|final|quarter|semi|octo/i.test(roundLabel)) {
           rounds.push({
-            round: cellText[0],
-            side: cellText[1] || "",
-            opponent: cellText[2] || "",
-            judge: cellText[3] || "",
-            decision: cellText[4] || "",
-            points: cellText[5] || "",
+            round: cellText[0], side: cellText[1] || "", opponent: cellText[2] || "",
+            judge: cellText[3] || "", decision: cellText[4] || "", points: cellText[5] || "",
           });
         }
       }
     }
 
-    return json({
-      rounds,
-      total: rounds.length,
-      html_preview: html.substring(0, 8000),
-    });
+    return json({ rounds, total: rounds.length, html_preview: html.substring(0, 8000) });
   } catch (e) {
     return err(`Failed to fetch ballots: ${(e as Error).message}`, 502);
   }
@@ -394,11 +440,23 @@ async function handleMyRounds(body: { token: string; tourn_id: string }) {
   if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
 
   try {
-    // Fetch the user's entry record page which has round-by-round results
-    const res = await tabroomFetch(`/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}`, body.token);
-    const html = await res.text();
+    const entryId = await findEntryId(body.token, body.tourn_id);
+    let html = "";
 
-    // Detect expired session
+    if (entryId) {
+      const res = await tabroomFetch(`/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}&entry_id=${entryId}`, body.token);
+      html = await res.text();
+    }
+
+    if (!entryId || html.includes("Invalid Entry ID")) {
+      try {
+        const res = await tabroomFetch(`/index/tourn/results/index.mhtml?tourn_id=${body.tourn_id}`, body.token);
+        html = await res.text();
+      } catch (e) {
+        console.log("MyRounds results fallback failed:", (e as Error).message);
+      }
+    }
+
     if (isLoginPage(html)) {
       return json({ rounds: [], record: { wins: 0, losses: 0 }, total: 0, error: "Session expired. Please sign out and back in." });
     }
@@ -412,20 +470,11 @@ async function handleMyRounds(body: { token: string; tourn_id: string }) {
       if (ct.length >= 3) {
         const label = ct[0];
         if (label && /round|rd|r\s*\d|elim|final|quarter|semi|octo|double|triple/i.test(label)) {
-          rounds.push({
-            round: ct[0],
-            side: ct[1] || "",
-            opponent: ct[2] || "",
-            judge: ct[3] || "",
-            decision: ct[4] || "",
-            points: ct[5] || "",
-            room: ct[6] || "",
-          });
+          rounds.push({ round: ct[0], side: ct[1] || "", opponent: ct[2] || "", judge: ct[3] || "", decision: ct[4] || "", points: ct[5] || "", room: ct[6] || "" });
         }
       }
     }
 
-    // Try to determine record (W-L)
     let wins = 0, losses = 0;
     for (const r of rounds) {
       const dec = (r.decision || "").toLowerCase();
@@ -433,12 +482,7 @@ async function handleMyRounds(body: { token: string; tourn_id: string }) {
       else if (dec.includes("l") || dec.includes("loss")) losses++;
     }
 
-    return json({
-      rounds,
-      record: { wins, losses },
-      total: rounds.length,
-      html_preview: html.substring(0, 5000),
-    });
+    return json({ rounds, record: { wins, losses }, total: rounds.length, html_preview: html.substring(0, 5000) });
   } catch (e) {
     return err(`Failed to fetch rounds: ${(e as Error).message}`, 502);
   }
