@@ -11,7 +11,6 @@ import { NavigationTab } from "@/components/flow/tabs/NavigationTab";
 import { ResultsTab } from "@/components/flow/tabs/ResultsTab";
 import { NearbyTab } from "@/components/flow/tabs/NearbyTab";
 import { ChatTab } from "@/components/flow/tabs/ChatTab";
-import { HistoryTab } from "@/components/flow/tabs/HistoryTab";
 import { TabroomProvider } from "@/contexts/TabroomContext";
 
 const Index = () => {
@@ -42,7 +41,6 @@ const Index = () => {
       case "results": return <ResultsTab />;
       case "nearby": return <NearbyTab />;
       case "chat": return <ChatTab />;
-      case "history": return <HistoryTab />;
       default: return <MyRoundsTab onTabChange={setActiveTab} />;
     }
   };

@@ -33,5 +33,4 @@ export type TabId =
   | "nav"
   | "results"
   | "nearby"
-  | "chat"
-  | "history";
+  | "chat";
