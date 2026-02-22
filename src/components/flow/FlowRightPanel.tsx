@@ -6,7 +6,7 @@ interface RightPanelProps {
 }
 
 export function FlowRightPanel({ onSignOut }: RightPanelProps) {
-  const { user, selectedTournament, tournaments, entries, selectTournament, pairings, myRecord, myRounds, pastResults, loading } = useTabroom();
+  const { user, selectedTournament, tournaments, entries, selectTournament, pairings, myRecord, myRounds, loading } = useTabroom();
   const initial = user.name[0]?.toUpperCase() || "?";
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -52,26 +52,9 @@ export function FlowRightPanel({ onSignOut }: RightPanelProps) {
     return false;
   }).length;
 
-  // Aggregate record from past results as fallback
-  const pastRecord = pastResults.reduce(
-    (acc, r) => {
-      const match = r.record?.match(/(\d+)-(\d+)/);
-      if (match) { acc.wins += parseInt(match[1]); acc.losses += parseInt(match[2]); }
-      return acc;
-    },
-    { wins: 0, losses: 0 }
-  );
-
   const hasRoundRecord = myRounds.length > 0;
-  const hasPastRecord = pastRecord.wins + pastRecord.losses > 0;
-
-  // Determine what to show
-  const recordDisplay = hasRoundRecord
-    ? `${myRecord.wins}–${myRecord.losses}`
-    : hasPastRecord
-      ? `${pastRecord.wins}–${pastRecord.losses}`
-      : "—";
-  const recordLabel = hasRoundRecord ? "Record" : hasPastRecord ? "Career" : "Record";
+  const recordDisplay = hasRoundRecord ? `${myRecord.wins}–${myRecord.losses}` : "—";
+  const recordLabel = "Record";
 
   const secondStat = avgSpeaks || (myPairingsCount > 0 ? myPairingsCount : "—");
   const secondLabel = avgSpeaks ? "Avg Speaks" : myPairingsCount > 0 ? "My Pairings" : "Speaks";

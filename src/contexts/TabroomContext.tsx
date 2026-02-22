@@ -7,14 +7,12 @@ import {
   tabroomGetJudge,
   tabroomGetMyRounds,
   tabroomGetEntries,
-  tabroomGetPastResults,
   tabroomGetUpcoming,
   type TabroomTournament,
   type TabroomPairing,
   type TabroomJudgeInfo,
   type TabroomCoinFlip,
   type TabroomRound,
-  type TabroomPastResult,
 } from "@/lib/tabroom-api";
 
 interface TabroomState {
@@ -28,7 +26,7 @@ interface TabroomState {
   myRecord: { wins: number; losses: number };
   judgeInfo: TabroomJudgeInfo | null;
   entries: TabroomTournament[];
-  pastResults: TabroomPastResult[];
+  
   upcomingTournaments: TabroomTournament[];
   loading: Record<string, boolean>;
   errors: Record<string, string | null>;
@@ -37,7 +35,7 @@ interface TabroomState {
   refreshBallots: () => void;
   refreshMyRounds: () => void;
   refreshEntries: () => void;
-  refreshPastResults: () => void;
+  
   refreshUpcoming: () => void;
   lookupJudge: (name?: string, id?: string) => void;
   htmlPreviews: Record<string, string | undefined>;
@@ -61,7 +59,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
   const [myRecord, setMyRecord] = useState({ wins: 0, losses: 0 });
   const [judgeInfo, setJudgeInfo] = useState<TabroomJudgeInfo | null>(null);
   const [entries, setEntries] = useState<TabroomTournament[]>([]);
-  const [pastResults, setPastResults] = useState<TabroomPastResult[]>([]);
+  
   const [upcomingTournaments, setUpcomingTournaments] = useState<TabroomTournament[]>([]);
   const [htmlPreviews, setHtmlPreviews] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -155,18 +153,6 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
 
   useEffect(() => { refreshEntries(); }, [refreshEntries]);
 
-  // Past results
-  const refreshPastResults = useCallback(async () => {
-    setLoad("pastResults", true); setErr("pastResults", null);
-    try {
-      const res = await tabroomGetPastResults(user.person_id || undefined, user.token);
-      setPastResults(res.results || []);
-    } catch (err: any) { setErr("pastResults", err.message); }
-    finally { setLoad("pastResults", false); }
-  }, [user.person_id, user.token]);
-
-  // Eagerly load past results on mount
-  useEffect(() => { refreshPastResults(); }, [refreshPastResults]);
 
   // Upcoming
   const refreshUpcoming = useCallback(async () => {
@@ -191,9 +177,9 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     <TabroomContext.Provider value={{
       user, tournaments, selectedTournament, pairings, coinFlip,
       ballots, myRounds, myRecord, judgeInfo, entries,
-      pastResults, upcomingTournaments, loading, errors,
+      upcomingTournaments, loading, errors,
       selectTournament, refreshPairings, refreshBallots,
-      refreshMyRounds, refreshEntries, refreshPastResults,
+      refreshMyRounds, refreshEntries,
       refreshUpcoming, lookupJudge, htmlPreviews,
     }}>
       {children}
