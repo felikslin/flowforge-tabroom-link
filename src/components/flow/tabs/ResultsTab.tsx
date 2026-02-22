@@ -95,9 +95,9 @@ export function ResultsTab() {
 
         {dropdownOpen && validTournaments.length > 0 && (
           <div className="absolute top-full mt-1 left-0 right-0 bg-card border border-border rounded-lg shadow-lg z-50 max-h-[320px] overflow-y-auto py-1">
-            {displayedTournaments.map((t) => (
+            {displayedTournaments.map((t, idx) => (
               <button
-                key={`${t.id}-${t.name}`}
+                key={`${t.id}-${t.name}-${idx}`}
                 onClick={() => handleSelectTournament(t)}
                 className={`w-full text-left px-3.5 py-2.5 text-xs transition-colors ${
                   selectedTournament?.id === t.id
