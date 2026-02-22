@@ -38,11 +38,11 @@ async function tabroomFetch(path: string, token: string, options: RequestInit = 
       const cookiePart = sc.split(";")[0];
       if (cookiePart) allCookies += `; ${cookiePart}`;
     }
-    await res.text(); // consume body
+    const consumedBody = await res.text(); // consume body to allow next fetch
     // Don't follow redirects to login page
     if (location.includes("/user/login/login.mhtml") || location.includes("msg=")) {
-      // Return a response indicating login required
-      break;
+      // Return a fresh response so callers can still read the body
+      return new Response(consumedBody, { status: res.status, headers: res.headers });
     }
     const nextUrl = location.startsWith("http") ? location : `${TABROOM_WEB}${location}`;
     res = await fetch(nextUrl, { headers: { Cookie: allCookies }, redirect: "manual" });
