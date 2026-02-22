@@ -146,46 +146,109 @@ async function handlePairings(body: { token: string; tourn_id: string; event_id?
 }
 
 // ─── JUDGE PARADIGM (public) ─────────────────────────────
+function extractParadigm(html: string): string | null {
+  // Try multiple selectors for paradigm content
+  const patterns = [
+    /class="paradigm[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /id="paradigm[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*class="[^"]*ltborderbottom[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*class="[^"]*paradigm_text[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*class="[^"]*main[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i,
+  ];
+  for (const p of patterns) {
+    const m = html.match(p);
+    if (m?.[1]) {
+      const text = m[1].replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").trim();
+      if (text.length > 20) return text;
+    }
+  }
+  // Last resort: grab all text between the first <h4> and the end of main content
+  const bodyMatch = html.match(/<h4[^>]*>[\s\S]*?<\/h4>([\s\S]*?)(?:<div[^>]*class="[^"]*menu|<footer|$)/i);
+  if (bodyMatch?.[1]) {
+    const text = bodyMatch[1].replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").trim();
+    if (text.length > 20) return text;
+  }
+  return null;
+}
+
 async function handleJudge(body: { judge_id?: string; judge_name?: string }) {
   if (!body.judge_id && !body.judge_name) return err("judge_id or judge_name is required");
 
   try {
     if (body.judge_id) {
-      const res = await fetch(`${TABROOM_WEB}/index/paradigm.mhtml?judge_person_id=${body.judge_id}`);
+      const url = `${TABROOM_WEB}/index/paradigm.mhtml?judge_person_id=${body.judge_id}`;
+      const res = await fetch(url);
       const html = await res.text();
-      const paradigmMatch = html.match(/class="paradigm[^"]*"[^>]*>([\s\S]*?)<\/div>/);
       const nameMatch = html.match(/<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/);
       return json({
         judge_id: body.judge_id,
         name: nameMatch?.[1]?.replace(/<[^>]+>/g, "").trim() || "Unknown",
-        paradigm: paradigmMatch?.[1]?.replace(/<[^>]+>/g, "").trim() || null,
+        paradigm: extractParadigm(html),
+        tabroom_url: url,
         html_preview: html.substring(0, 5000),
       });
     }
 
+    // Try tournaments.tech first for name-based lookup
     try {
       const res = await fetch(`https://tournaments.tech/query?format=LD&term=${encodeURIComponent(body.judge_name!)}`, { signal: AbortSignal.timeout(5000) });
       const text = await res.text();
-      try { return json(JSON.parse(text)); } catch { return json({ results: [], raw: text.substring(0, 2000) }); }
+      try {
+        const data = JSON.parse(text);
+        // If tournaments.tech returned results, also try to get paradigm from Tabroom
+        return json(data);
+      } catch { /* fall through */ }
     } catch (ttErr) {
       console.log("tournaments.tech unavailable:", (ttErr as Error).message);
     }
 
-    const searchRes = await fetch(`${TABROOM_WEB}/index/paradigm.mhtml?search_first=${encodeURIComponent(body.judge_name!.split(" ")[0] || "")}&search_last=${encodeURIComponent(body.judge_name!.split(" ").slice(1).join(" ") || body.judge_name!)}`);
+    // Tabroom search fallback
+    const firstName = body.judge_name!.split(" ")[0] || "";
+    const lastName = body.judge_name!.split(" ").slice(1).join(" ") || body.judge_name!;
+    const searchUrl = `${TABROOM_WEB}/index/paradigm.mhtml?search_first=${encodeURIComponent(firstName)}&search_last=${encodeURIComponent(lastName)}`;
+    const searchRes = await fetch(searchUrl);
     const searchHtml = await searchRes.text();
+
     const judgeResults: Array<Record<string, string | null>> = [];
     const linkRegex = /judge_person_id=(\d+)[^>]*>([^<]+)/g;
     let m;
     while ((m = linkRegex.exec(searchHtml)) !== null) {
       judgeResults.push({ judge_id: m[1], name: m[2].trim() });
     }
+
     if (judgeResults.length === 1) {
-      const pRes = await fetch(`${TABROOM_WEB}/index/paradigm.mhtml?judge_person_id=${judgeResults[0].judge_id}`);
+      const pUrl = `${TABROOM_WEB}/index/paradigm.mhtml?judge_person_id=${judgeResults[0].judge_id}`;
+      const pRes = await fetch(pUrl);
       const pHtml = await pRes.text();
-      const paradigmMatch = pHtml.match(/class="paradigm[^"]*"[^>]*>([\s\S]*?)<\/div>/);
-      return json({ judge_id: judgeResults[0].judge_id, name: judgeResults[0].name, paradigm: paradigmMatch?.[1]?.replace(/<[^>]+>/g, "").trim() || null, source: "tabroom_fallback" });
+      return json({
+        judge_id: judgeResults[0].judge_id,
+        name: judgeResults[0].name,
+        paradigm: extractParadigm(pHtml),
+        tabroom_url: pUrl,
+        html_preview: pHtml.substring(0, 5000),
+        source: "tabroom_fallback",
+      });
     }
-    return json({ results: judgeResults, total: judgeResults.length, source: "tabroom_fallback", html_preview: searchHtml.substring(0, 3000) });
+
+    // If multiple results, check if paradigm is already on the search page
+    const searchParadigm = extractParadigm(searchHtml);
+    if (searchParadigm && judgeResults.length === 0) {
+      // The search page itself might be a paradigm page
+      const nameMatch = searchHtml.match(/<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/);
+      return json({
+        name: nameMatch?.[1]?.replace(/<[^>]+>/g, "").trim() || body.judge_name,
+        paradigm: searchParadigm,
+        tabroom_url: searchUrl,
+        source: "tabroom_fallback",
+      });
+    }
+
+    return json({
+      results: judgeResults,
+      total: judgeResults.length,
+      source: "tabroom_fallback",
+      html_preview: searchHtml.substring(0, 3000),
+    });
   } catch (e) {
     return err(`Failed to fetch judge info: ${(e as Error).message}`, 502);
   }

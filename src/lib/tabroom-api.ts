@@ -49,7 +49,9 @@ export interface TabroomJudgeInfo {
   judge_id?: string;
   name: string;
   paradigm: string | null;
+  tabroom_url?: string;
   html_preview?: string;
+  results?: Array<{ judge_id: string; name: string }>;
 }
 
 export interface TabroomRound {
