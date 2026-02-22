@@ -1,105 +1,77 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
-
-interface RoomPin {
-  id: string;
-  label: string;
-  x: number; // percentage 0-100
-  y: number; // percentage 0-100
-}
-
-interface VenueMap {
-  id: string;
-  name: string;
-  floor: string;
-  imageUrl: string;
-  rooms: RoomPin[];
-}
-
-// Demo venue map data — in production this would come from a DB/storage
-const DEMO_VENUES: VenueMap[] = [
-  {
-    id: "default",
-    name: "Venue",
-    floor: "Floor 1",
-    imageUrl: "",
-    rooms: [],
-  },
-];
+import { tabroomGetVenueMap, type TabroomVenueMap } from "@/lib/tabroom-api";
 
 export function NavigationTab() {
-  const { pairings, selectedTournament } = useTabroom();
+  const { pairings, selectedTournament, user } = useTabroom();
+  const [venueData, setVenueData] = useState<TabroomVenueMap | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState(false);
-  const [venues, setVenues] = useState<VenueMap[]>(DEMO_VENUES);
-  const [activeVenueIdx, setActiveVenueIdx] = useState(0);
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
-  const [newPins, setNewPins] = useState<RoomPin[]>([]);
-  const [addingPin, setAddingPin] = useState(false);
-  const [pinLabel, setPinLabel] = useState("");
-  const mapRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   const tournamentName = selectedTournament?.name || "No Tournament";
-  const activeVenue = venues[activeVenueIdx];
 
-  // Extract rooms from pairings for quick-jump
+  // Fetch venue map when tournament changes
+  useEffect(() => {
+    if (!selectedTournament) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setVenueData(null);
+    setActiveImageIdx(0);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+
+    tabroomGetVenueMap(user.token, selectedTournament.id)
+      .then((data) => {
+        if (!cancelled) setVenueData(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedTournament, user.token]);
+
+  // Extract rooms from pairings
   const pairingRooms = pairings
     .filter((p) => p.room)
     .map((p, i) => ({ label: `Pairing ${i + 1}`, room: p.room }));
 
-  // All pins (venue + user-added)
-  const allPins = activeVenue ? [...activeVenue.rooms, ...newPins] : newPins;
+  // Map interaction handlers
+  const handleZoomIn = useCallback(() => setZoom((z) => Math.min(z + 0.3, 4)), []);
+  const handleZoomOut = useCallback(() => setZoom((z) => Math.max(z - 0.3, 0.5)), []);
+  const handleReset = useCallback(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, []);
 
-  const handleMapClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!addingPin || !mapRef.current || !pinLabel.trim()) return;
-      const rect = mapRef.current.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 100;
-      const y = ((e.clientY - rect.top) / rect.height) * 100;
-      setNewPins((prev) => [
-        ...prev,
-        { id: `pin-${Date.now()}`, label: pinLabel.trim(), x, y },
-      ]);
-      setPinLabel("");
-      setAddingPin(false);
-    },
-    [addingPin, pinLabel]
-  );
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (zoom <= 1) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  }, [zoom, pan]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setUploadedImage(reader.result as string);
-      setVenues((prev) => {
-        const copy = [...prev];
-        if (copy[activeVenueIdx]) {
-          copy[activeVenueIdx] = { ...copy[activeVenueIdx], imageUrl: reader.result as string };
-        } else {
-          copy.push({
-            id: `venue-${Date.now()}`,
-            name: "My Venue",
-            floor: "Floor 1",
-            imageUrl: reader.result as string,
-            rooms: [],
-          });
-        }
-        return copy;
-      });
-    };
-    reader.readAsDataURL(file);
-  };
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+  }, [isDragging, dragStart]);
 
-  // Find route between two pins (simple: highlight start + end with line)
-  const routeTarget = selectedRoom
-    ? allPins.find(
-        (p) => p.label.toLowerCase() === selectedRoom.toLowerCase()
-      )
-    : null;
-  const startPin = allPins.find(
-    (p) => p.label.toLowerCase().includes("lobby") || p.label.toLowerCase().includes("entrance")
-  );
+  const handleMouseUp = useCallback(() => setIsDragging(false), []);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.15 : 0.15;
+    setZoom((z) => Math.min(Math.max(z + delta, 0.5), 4));
+  }, []);
+
+  const hasMap = venueData && (venueData.map_images.length > 0 || venueData.embedded_map_url);
+  const activeImage = venueData?.map_images[activeImageIdx];
 
   return (
     <div className="animate-fadein">
@@ -107,34 +79,8 @@ export function NavigationTab() {
         Navigation
       </h2>
       <p className="text-muted-foreground text-[11.5px] mb-4">
-        {tournamentName} · Indoor venue map
+        {tournamentName} · Venue map
       </p>
-
-      {/* Venue selector + edit toggle */}
-      <div className="flex items-center gap-2 mb-3">
-        {venues.length > 1 &&
-          venues.map((v, i) => (
-            <button
-              key={v.id}
-              onClick={() => setActiveVenueIdx(i)}
-              className={`px-3 py-1.5 rounded-md text-[11px] border-none cursor-pointer font-mono transition-all ${
-                i === activeVenueIdx
-                  ? "bg-card text-foreground font-medium shadow-sm"
-                  : "text-muted-foreground bg-flow-surface2"
-              }`}
-            >
-              {v.floor}
-            </button>
-          ))}
-        <button
-          onClick={() => setEditMode(!editMode)}
-          className={`ml-auto px-2.5 py-1.5 rounded-md text-[10px] border border-border cursor-pointer transition-all ${
-            editMode ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground"
-          }`}
-        >
-          {editMode ? "Done" : "✏️ Edit Map"}
-        </button>
-      </div>
 
       {/* Quick-jump from pairings */}
       {pairingRooms.length > 0 && (
@@ -158,166 +104,171 @@ export function NavigationTab() {
         </div>
       )}
 
-      {/* Map area */}
-      <div
-        ref={mapRef}
-        onClick={handleMapClick}
-        className={`relative w-full aspect-[4/3] rounded-lg border border-border overflow-hidden ${
-          addingPin ? "cursor-crosshair" : ""
-        } ${!activeVenue?.imageUrl ? "bg-flow-surface2" : ""}`}
-        style={
-          activeVenue?.imageUrl
-            ? { backgroundImage: `url(${activeVenue.imageUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
-            : undefined
-        }
-      >
-        {!activeVenue?.imageUrl && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground">
-            <span className="text-3xl mb-2">🗺️</span>
-            <p className="text-[12px] font-medium mb-1">No venue map uploaded</p>
-            <p className="text-[10px] mb-3">Upload a floor plan image to get started</p>
-            <label className="bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-[11px] font-medium cursor-pointer">
-              Upload Floor Plan
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="hidden"
-              />
-            </label>
-          </div>
-        )}
+      {/* Loading state */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mb-3" />
+          <p className="text-[12px]">Loading venue map…</p>
+        </div>
+      )}
 
-        {/* Route line */}
-        {startPin && routeTarget && startPin.id !== routeTarget.id && (
-          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 5 }}>
-            <defs>
-              <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                <polygon points="0 0, 8 3, 0 6" fill="hsl(var(--primary))" />
-              </marker>
-            </defs>
-            <line
-              x1={`${startPin.x}%`}
-              y1={`${startPin.y}%`}
-              x2={`${routeTarget.x}%`}
-              y2={`${routeTarget.y}%`}
-              stroke="hsl(var(--primary))"
-              strokeWidth="2.5"
-              strokeDasharray="6 4"
-              markerEnd="url(#arrowhead)"
-              opacity="0.8"
-            />
-          </svg>
-        )}
+      {/* Error state */}
+      {error && !loading && (
+        <div className="flow-card text-center py-8">
+          <span className="text-2xl mb-2 block">⚠️</span>
+          <p className="text-[12px] text-muted-foreground mb-2">Could not load venue map</p>
+          <p className="text-[11px] text-muted-foreground/70">{error}</p>
+        </div>
+      )}
 
-        {/* Room pins */}
-        {allPins.map((pin) => {
-          const isTarget = selectedRoom && pin.label.toLowerCase() === selectedRoom.toLowerCase();
-          const isStart = startPin?.id === pin.id && routeTarget && startPin.id !== routeTarget.id;
-          return (
-            <button
-              key={pin.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedRoom(pin.label);
-              }}
-              className={`absolute flex flex-col items-center -translate-x-1/2 -translate-y-full border-none bg-transparent cursor-pointer transition-transform ${
-                isTarget ? "scale-125 z-20" : "z-10"
-              }`}
-              style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
+      {/* No map found */}
+      {!loading && !error && venueData && !hasMap && (
+        <div className="flow-card text-center py-10">
+          <span className="text-3xl mb-2 block">🗺️</span>
+          <p className="text-[12px] font-medium mb-1">No venue map available</p>
+          <p className="text-[10px] text-muted-foreground mb-3">
+            This tournament doesn't have a map on its Tabroom page
+          </p>
+          {venueData.venue_name && (
+            <p className="text-[11px] text-foreground mb-1">📍 {venueData.venue_name}</p>
+          )}
+          {venueData.venue_address && (
+            <a
+              href={`https://maps.google.com?q=${encodeURIComponent(venueData.venue_address)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-[11px] font-medium no-underline mt-2"
             >
-              <span
-                className={`px-2 py-1 rounded-md text-[10px] font-medium whitespace-nowrap shadow-sm ${
-                  isTarget
-                    ? "bg-primary text-primary-foreground animate-pulse-dot"
-                    : isStart
-                    ? "bg-flow-gold-light text-flow-gold border border-flow-gold"
-                    : "bg-card text-foreground border border-border"
-                }`}
-              >
-                {pin.label}
-              </span>
-              <span
-                className={`w-2 h-2 rounded-full mt-0.5 ${
-                  isTarget ? "bg-primary animate-glow" : "bg-muted-foreground"
-                }`}
-              />
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Edit controls */}
-      {editMode && (
-        <div className="mt-3 flow-card space-y-2.5">
-          <div className="flow-label">Edit Venue Map</div>
-
-          <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card cursor-pointer text-[11px]">
-            📷 Upload new floor plan
-            <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-          </label>
-
-          {activeVenue?.imageUrl && (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Room label (e.g. Room 107)"
-                value={pinLabel}
-                onChange={(e) => setPinLabel(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-lg border border-border bg-card text-[11px] outline-none"
-              />
-              <button
-                onClick={() => setAddingPin(true)}
-                disabled={!pinLabel.trim()}
-                className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-[11px] font-medium border-none cursor-pointer disabled:opacity-40"
-              >
-                📌 Place Pin
-              </button>
-            </div>
-          )}
-
-          {addingPin && (
-            <div className="bg-flow-gold-light text-flow-gold text-[11px] px-3 py-2 rounded-lg">
-              Click on the map to place "{pinLabel}"
-            </div>
-          )}
-
-          {newPins.length > 0 && (
-            <div>
-              <div className="flow-label mb-1">Added Pins</div>
-              <div className="flex flex-wrap gap-1">
-                {newPins.map((p) => (
-                  <span
-                    key={p.id}
-                    className="flex items-center gap-1 bg-flow-surface2 px-2 py-1 rounded-md text-[10px]"
-                  >
-                    {p.label}
-                    <button
-                      onClick={() => setNewPins((prev) => prev.filter((pin) => pin.id !== p.id))}
-                      className="text-flow-warn bg-transparent border-none cursor-pointer text-[10px]"
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </div>
+              ↗ Open in Google Maps
+            </a>
           )}
         </div>
       )}
 
-      {/* Selected room info */}
-      {selectedRoom && routeTarget && (
+      {/* Embedded Google Map */}
+      {!loading && venueData?.embedded_map_url && (
+        <div className="mb-3">
+          <div className="flow-label mb-1.5">Venue Map</div>
+          <div className="relative w-full aspect-[16/10] rounded-lg border border-border overflow-hidden">
+            <iframe
+              src={venueData.embedded_map_url}
+              className="absolute inset-0 w-full h-full"
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              title="Venue Map"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Map images with zoom/pan */}
+      {!loading && venueData && venueData.map_images.length > 0 && (
+        <div>
+          {/* Image selector if multiple */}
+          {venueData.map_images.length > 1 && (
+            <div className="flex items-center gap-1.5 mb-2">
+              <div className="flow-label">Maps</div>
+              <div className="flex gap-1 ml-auto">
+                {venueData.map_images.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setActiveImageIdx(i); setZoom(1); setPan({ x: 0, y: 0 }); }}
+                    className={`w-7 h-7 rounded-md text-[10px] border-none cursor-pointer transition-all ${
+                      i === activeImageIdx
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "bg-card text-muted-foreground hover:bg-flow-surface2"
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Map viewer */}
+          <div
+            className="relative w-full aspect-[4/3] rounded-lg border border-border overflow-hidden bg-flow-surface2 select-none"
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onWheel={handleWheel}
+            style={{ cursor: zoom > 1 ? (isDragging ? "grabbing" : "grab") : "default" }}
+          >
+            {activeImage && (
+              <img
+                src={activeImage}
+                alt="Venue map"
+                className="absolute inset-0 w-full h-full object-contain transition-transform duration-150"
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: "center center",
+                }}
+                draggable={false}
+              />
+            )}
+
+            {/* Zoom controls */}
+            <div className="absolute bottom-2 right-2 flex items-center gap-1 z-10">
+              <button
+                onClick={handleZoomOut}
+                className="w-7 h-7 rounded-md bg-card/90 backdrop-blur-sm border border-border text-foreground text-[14px] cursor-pointer flex items-center justify-center hover:bg-card"
+              >
+                −
+              </button>
+              <button
+                onClick={handleReset}
+                className="px-2 h-7 rounded-md bg-card/90 backdrop-blur-sm border border-border text-muted-foreground text-[10px] cursor-pointer hover:bg-card"
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <button
+                onClick={handleZoomIn}
+                className="w-7 h-7 rounded-md bg-card/90 backdrop-blur-sm border border-border text-foreground text-[14px] cursor-pointer flex items-center justify-center hover:bg-card"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Venue info & external link */}
+      {!loading && venueData && (venueData.venue_name || venueData.venue_address) && (
         <div className="mt-3 flow-card">
           <div className="flex items-center justify-between">
             <div>
-              <div className="flow-label">Navigate to</div>
-              <div className="text-[14px] font-medium">{selectedRoom}</div>
-              {startPin && (
-                <div className="text-[11px] text-muted-foreground mt-0.5">
-                  From {startPin.label} → {selectedRoom}
-                </div>
+              <div className="flow-label">Venue</div>
+              {venueData.venue_name && (
+                <div className="text-[13px] font-medium">{venueData.venue_name}</div>
               )}
+              {venueData.venue_address && (
+                <div className="text-[11px] text-muted-foreground mt-0.5">{venueData.venue_address}</div>
+              )}
+            </div>
+            <a
+              href={`https://maps.google.com?q=${encodeURIComponent(
+                venueData.venue_address || venueData.venue_name || tournamentName
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 bg-primary text-primary-foreground px-2.5 py-1.5 rounded-md text-[11px] font-medium no-underline flex-shrink-0"
+            >
+              ↗ Google Maps
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Selected room info */}
+      {selectedRoom && (
+        <div className="mt-3 flow-card">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flow-label">Looking for</div>
+              <div className="text-[14px] font-medium">{selectedRoom}</div>
             </div>
             <a
               href={`https://maps.google.com?q=${encodeURIComponent(selectedRoom + " " + tournamentName)}`}
@@ -327,29 +278,6 @@ export function NavigationTab() {
             >
               ↗ External Maps
             </a>
-          </div>
-        </div>
-      )}
-
-      {/* Room list */}
-      {allPins.length > 0 && !editMode && (
-        <div className="mt-3">
-          <div className="flow-label mb-1.5">All Rooms</div>
-          <div className="flow-card p-0">
-            {allPins.map((pin, i) => (
-              <button
-                key={pin.id}
-                onClick={() => setSelectedRoom(pin.label)}
-                className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-left border-none cursor-pointer transition-colors ${
-                  selectedRoom === pin.label ? "bg-flow-accent-light" : "bg-transparent hover:bg-flow-surface2"
-                } ${i < allPins.length - 1 ? "border-b border-border" : ""}`}
-              >
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  selectedRoom === pin.label ? "bg-primary" : "bg-muted-foreground"
-                }`} />
-                <span className="text-[12px] font-medium">{pin.label}</span>
-              </button>
-            ))}
           </div>
         </div>
       )}
