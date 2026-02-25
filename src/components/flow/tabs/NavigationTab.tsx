@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
 import { tabroomGetVenueMap, type TabroomVenueMap } from "@/lib/tabroom-api";
+import { VenueGoogleMap } from "./VenueGoogleMap";
+
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 export function NavigationTab() {
   const { pairings, selectedTournament, user } = useTabroom();
@@ -188,22 +191,31 @@ export function NavigationTab() {
         </div>
       )}
 
-      {/* Google Maps embed - always show when loaded */}
+      {/* Google Maps - interactive SDK or iframe fallback */}
       {!loading && !error && venueData && (
         <div className="mb-3">
           <div className="flow-label mb-1.5">Venue Map</div>
-          <div className="relative w-full aspect-[16/10] rounded-lg border border-border overflow-hidden">
-            <iframe
-              src={embedUrl}
-              className="absolute inset-0 w-full h-full"
-              allowFullScreen
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-              title="Venue Map"
+
+          {GOOGLE_MAPS_API_KEY ? (
+            <VenueGoogleMap
+              venueAddress={venueData.venue_address}
+              venueName={venueData.venue_name}
             />
-          </div>
+          ) : (
+            <div className="relative w-full aspect-[16/10] rounded-lg border border-border overflow-hidden">
+              <iframe
+                src={embedUrl}
+                className="absolute inset-0 w-full h-full"
+                allowFullScreen
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                title="Venue Map"
+              />
+            </div>
+          )}
+
           {venueData.venue_name && (
-            <p className="text-[11px] text-foreground mt-2">📍 {venueData.venue_name}</p>
+            <p className="text-[11px] text-foreground mt-2">{venueData.venue_name}</p>
           )}
           {venueData.venue_address && (
             <p className="text-[10px] text-muted-foreground mt-0.5">{venueData.venue_address}</p>
