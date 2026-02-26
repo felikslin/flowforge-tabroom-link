@@ -8,6 +8,7 @@ import {
 } from "@vis.gl/react-google-maps";
 import { useGeolocation } from "@/hooks/use-geolocation";
 import { useGeocode } from "@/hooks/use-geocode";
+import { PlacesSearchBar } from "./PlacesSearchBar";
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
@@ -36,32 +37,34 @@ function VenueMapInner({ venueAddress, venueName }: VenueGoogleMapProps) {
   const [routeSummary, setRouteSummary] = useState<{ distance: string; duration: string } | null>(null);
   const [showingDirections, setShowingDirections] = useState(false);
   const [directionsError, setDirectionsError] = useState<string | null>(null);
+  const [searchDestination, setSearchDestination] = useState<{ lat: number; lng: number; name: string } | null>(null);
+
+  // The active destination is either the search result or the venue
+  const activeDestination = searchDestination || venueCoords;
+  const activeDestinationName = searchDestination?.name || venueName || "Venue";
 
   // Fit bounds to show venue + user location within ~1 mile radius
   useEffect(() => {
     if (!map) return;
 
-    if (venueCoords && geo.lat && geo.lng) {
-      // Fit both markers with padding
+    if (activeDestination && geo.lat && geo.lng) {
       const bounds = new google.maps.LatLngBounds();
-      bounds.extend(venueCoords);
+      bounds.extend(activeDestination);
       bounds.extend({ lat: geo.lat, lng: geo.lng });
       map.fitBounds(bounds, 60);
-      // Cap zoom so we don't zoom in too tight if they're very close
       const listener = google.maps.event.addListenerOnce(map, "idle", () => {
         const z = map.getZoom();
         if (z && z > 15) map.setZoom(15);
       });
       return () => google.maps.event.removeListener(listener);
     } else if (geo.lat && geo.lng) {
-      // Only user location — show ~1 mile radius (zoom ~14)
       map.panTo({ lat: geo.lat, lng: geo.lng });
       map.setZoom(14);
-    } else if (venueCoords) {
-      map.panTo(venueCoords);
+    } else if (activeDestination) {
+      map.panTo(activeDestination);
       map.setZoom(15);
     }
-  }, [map, venueCoords, geo.lat, geo.lng]);
+  }, [map, activeDestination, geo.lat, geo.lng]);
 
   // Initialize DirectionsRenderer when map and routes library are ready
   useEffect(() => {
@@ -79,15 +82,17 @@ function VenueMapInner({ venueAddress, venueName }: VenueGoogleMapProps) {
     return () => renderer.setMap(null);
   }, [map, routesLib]);
 
-  const requestDirections = useCallback(() => {
-    if (!routesLib || !geo.lat || !geo.lng || !venueCoords || !directionsRenderer) return;
+  // Auto-navigate when a search destination is selected and user location is available
+  const requestDirections = useCallback((dest?: { lat: number; lng: number }) => {
+    const target = dest || activeDestination;
+    if (!routesLib || !geo.lat || !geo.lng || !target || !directionsRenderer) return;
 
     setDirectionsError(null);
     const service = new routesLib.DirectionsService();
     service.route(
       {
         origin: { lat: geo.lat, lng: geo.lng },
-        destination: { lat: venueCoords.lat, lng: venueCoords.lng },
+        destination: { lat: target.lat, lng: target.lng },
         travelMode: google.maps.TravelMode.DRIVING,
       },
       (result, status) => {
@@ -106,7 +111,7 @@ function VenueMapInner({ venueAddress, venueName }: VenueGoogleMapProps) {
         }
       }
     );
-  }, [routesLib, geo.lat, geo.lng, venueCoords, directionsRenderer]);
+  }, [routesLib, geo.lat, geo.lng, activeDestination, directionsRenderer]);
 
   const clearDirections = useCallback(() => {
     if (directionsRenderer) {
@@ -114,13 +119,29 @@ function VenueMapInner({ venueAddress, venueName }: VenueGoogleMapProps) {
     }
     setRouteSummary(null);
     setShowingDirections(false);
+    setSearchDestination(null);
   }, [directionsRenderer]);
 
-  const defaultCenter = venueCoords || { lat: 39.8283, lng: -98.5795 };
-  const defaultZoom = venueCoords ? 15 : 4;
+  const handlePlaceSelected = useCallback(
+    (place: { lat: number; lng: number; name: string }) => {
+      setSearchDestination(place);
+      // Auto-request directions if user location is available
+      if (geo.lat && geo.lng && directionsRenderer && routesLib) {
+        // Small delay to let map update
+        setTimeout(() => requestDirections(place), 100);
+      }
+    },
+    [geo.lat, geo.lng, directionsRenderer, routesLib, requestDirections]
+  );
+
+  const defaultCenter = activeDestination || { lat: 39.8283, lng: -98.5795 };
+  const defaultZoom = activeDestination ? 15 : 4;
 
   return (
     <div>
+      {/* Search bar */}
+      <PlacesSearchBar onPlaceSelected={handlePlaceSelected} />
+
       {/* Map container */}
       <div className="relative w-full aspect-[16/10] rounded-lg border border-border overflow-hidden">
         <Map
@@ -130,11 +151,11 @@ function VenueMapInner({ venueAddress, venueName }: VenueGoogleMapProps) {
           disableDefaultUI={false}
           style={{ width: "100%", height: "100%" }}
         >
-          {/* Venue marker */}
-          {venueCoords && (
+          {/* Destination marker */}
+          {activeDestination && (
             <Marker
-              position={venueCoords}
-              title={venueName || "Venue"}
+              position={activeDestination}
+              title={activeDestinationName}
             />
           )}
 
@@ -168,7 +189,7 @@ function VenueMapInner({ venueAddress, venueName }: VenueGoogleMapProps) {
         {!geo.granted && !geo.loading && (
           <button
             onClick={geo.requestLocation}
-            className="px-2.5 py-1.5 rounded-md text-[11px] border border-border bg-card text-foreground cursor-pointer hover:bg-flow-surface2 transition-colors"
+            className="px-2.5 py-1.5 rounded-md text-[11px] border border-border bg-card text-foreground cursor-pointer hover:bg-accent/40 transition-colors"
           >
             Enable Location
           </button>
@@ -177,9 +198,9 @@ function VenueMapInner({ venueAddress, venueName }: VenueGoogleMapProps) {
           <span className="text-[10px] text-muted-foreground">Getting location...</span>
         )}
 
-        {geo.granted && venueCoords && !showingDirections && (
+        {geo.granted && activeDestination && !showingDirections && (
           <button
-            onClick={requestDirections}
+            onClick={() => requestDirections()}
             className="px-2.5 py-1.5 rounded-md text-[11px] bg-primary text-primary-foreground border-none cursor-pointer font-medium"
           >
             Get Directions
@@ -188,7 +209,7 @@ function VenueMapInner({ venueAddress, venueName }: VenueGoogleMapProps) {
         {showingDirections && (
           <button
             onClick={clearDirections}
-            className="px-2.5 py-1.5 rounded-md text-[11px] border border-border bg-card text-foreground cursor-pointer hover:bg-flow-surface2 transition-colors"
+            className="px-2.5 py-1.5 rounded-md text-[11px] border border-border bg-card text-foreground cursor-pointer hover:bg-accent/40 transition-colors"
           >
             Clear Directions
           </button>
