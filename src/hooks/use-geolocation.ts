@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 interface GeoState {
   lat: number | null;
@@ -8,7 +8,7 @@ interface GeoState {
   granted: boolean;
 }
 
-export function useGeolocation() {
+export function useGeolocation(watch = false) {
   const [state, setState] = useState<GeoState>({
     lat: null,
     lng: null,
@@ -16,6 +16,7 @@ export function useGeolocation() {
     loading: false,
     granted: false,
   });
+  const watchIdRef = useRef<number | null>(null);
 
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -50,6 +51,36 @@ export function useGeolocation() {
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }, []);
+
+  // Continuous watch mode
+  useEffect(() => {
+    if (!watch || !state.granted || !navigator.geolocation) return;
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        setState((s) => ({
+          ...s,
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          error: null,
+        }));
+      },
+      (err) => {
+        setState((s) => ({
+          ...s,
+          error: err.code === 2 ? "Location unavailable" : s.error,
+        }));
+      },
+      { enableHighAccuracy: true, maximumAge: 5000 }
+    );
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, [watch, state.granted]);
 
   return { ...state, requestLocation };
 }
