@@ -37,13 +37,31 @@ function VenueMapInner({ venueAddress, venueName }: VenueGoogleMapProps) {
   const [showingDirections, setShowingDirections] = useState(false);
   const [directionsError, setDirectionsError] = useState<string | null>(null);
 
-  // Re-center map when venue coordinates are resolved
+  // Fit bounds to show venue + user location within ~1 mile radius
   useEffect(() => {
-    if (map && venueCoords) {
+    if (!map) return;
+
+    if (venueCoords && geo.lat && geo.lng) {
+      // Fit both markers with padding
+      const bounds = new google.maps.LatLngBounds();
+      bounds.extend(venueCoords);
+      bounds.extend({ lat: geo.lat, lng: geo.lng });
+      map.fitBounds(bounds, 60);
+      // Cap zoom so we don't zoom in too tight if they're very close
+      const listener = google.maps.event.addListenerOnce(map, "idle", () => {
+        const z = map.getZoom();
+        if (z && z > 15) map.setZoom(15);
+      });
+      return () => google.maps.event.removeListener(listener);
+    } else if (geo.lat && geo.lng) {
+      // Only user location — show ~1 mile radius (zoom ~14)
+      map.panTo({ lat: geo.lat, lng: geo.lng });
+      map.setZoom(14);
+    } else if (venueCoords) {
       map.panTo(venueCoords);
       map.setZoom(15);
     }
-  }, [map, venueCoords]);
+  }, [map, venueCoords, geo.lat, geo.lng]);
 
   // Initialize DirectionsRenderer when map and routes library are ready
   useEffect(() => {
