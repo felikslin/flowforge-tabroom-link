@@ -318,8 +318,43 @@ async function handleJudge(body: { judge_id?: string; judge_name?: string; token
       const res = await fetch(`https://tournaments.tech/query?format=LD&term=${encodeURIComponent(body.judge_name!)}`, { signal: AbortSignal.timeout(5000) });
       const text = await res.text();
       try {
-        const data = JSON.parse(text);
-        return json(data);
+        const ttData = JSON.parse(text);
+        console.log("tournaments.tech response:", JSON.stringify(ttData).substring(0, 500));
+        // Map tournaments.tech response to our TabroomJudgeInfo format
+        if (ttData && (ttData.paradigm || ttData.name)) {
+          return json({
+            judge_id: ttData.judge_id || ttData.id || undefined,
+            name: ttData.name || body.judge_name,
+            paradigm: ttData.paradigm || null,
+            tabroom_url: ttData.tabroom_url || ttData.url || (ttData.judge_id ? `${TABROOM_WEB}/index/paradigm.mhtml?judge_person_id=${ttData.judge_id}` : undefined),
+            html_preview: ttData.html_preview || undefined,
+            source: "tournaments_tech",
+          });
+        }
+        // If tournaments.tech returned results array, map it
+        if (Array.isArray(ttData)) {
+          if (ttData.length === 1 && ttData[0]) {
+            return json({
+              judge_id: ttData[0].judge_id || ttData[0].id || undefined,
+              name: ttData[0].name || body.judge_name,
+              paradigm: ttData[0].paradigm || null,
+              tabroom_url: ttData[0].url || undefined,
+              source: "tournaments_tech",
+            });
+          }
+          if (ttData.length > 1) {
+            return json({
+              name: body.judge_name,
+              results: ttData.map((j: Record<string, unknown>) => ({
+                judge_id: String(j.judge_id || j.id || ""),
+                name: String(j.name || "Unknown"),
+              })),
+              total: ttData.length,
+              source: "tournaments_tech",
+            });
+          }
+        }
+        // Unrecognized format — fall through to Tabroom scraping
       } catch { /* fall through */ }
     } catch (ttErr) {
       console.log("tournaments.tech unavailable:", (ttErr as Error).message);
@@ -334,7 +369,7 @@ async function handleJudge(body: { judge_id?: string; judge_name?: string; token
       return json({
         name: body.judge_name,
         paradigm: null,
-        error: "Tabroom requires login to view paradigms. Please ensure you're logged in.",
+        warning: "Tabroom requires login to view paradigms. Please ensure you're logged in.",
         tabroom_url: searchUrl,
       });
     }
@@ -387,6 +422,7 @@ async function handleJudge(body: { judge_id?: string; judge_name?: string; token
     }
 
     return json({
+      name: body.judge_name || "Multiple Results",
       results: judgeResults,
       total: judgeResults.length,
       source: "tabroom_fallback",
@@ -531,16 +567,33 @@ function parseRoundsFromHtml(html: string): Array<Record<string, string>> {
 }
 
 // ─── BALLOTS ─────────────────────────────────────────────
-async function handleBallots(body: { token: string; tourn_id: string; entry_id?: string; entry_name?: string; person_name?: string }) {
+async function handleBallots(body: { token: string; tourn_id: string; entry_id?: string; entry_name?: string; person_name?: string; person_id?: string }) {
   if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
 
   try {
     const pages: string[] = [];
-    
+
     // Strategy 1: Find user's entry_id (now with name-based search)
     let entryId = body.entry_id;
     if (!entryId) {
       entryId = await findEntryId(body.token, body.tourn_id, body.person_name) || undefined;
+    }
+
+    // Strategy 1b: If person_id is available and no entry found, try person_id lookup
+    if (!entryId && body.person_id) {
+      try {
+        const res = await tabroomFetch(
+          `/index/results/ranked_list.mhtml?person_id=${body.person_id}&tourn_id=${body.tourn_id}`, body.token
+        );
+        const html = await res.text();
+        if (!isLoginPage(html) && !html.includes("404 Not Found")) {
+          const match = html.match(/entry_id=(\d+)/);
+          if (match) {
+            entryId = match[1];
+            console.log(`Ballots: Found entry_id=${entryId} via person_id=${body.person_id}`);
+          }
+        }
+      } catch (e) { console.log("Ballots person_id lookup failed:", (e as Error).message); }
     }
     
     if (entryId && entryId.startsWith("__HTML__")) {
@@ -705,12 +758,35 @@ async function handleBallots(body: { token: string; tourn_id: string; entry_id?:
 }
 
 // ─── MY ROUNDS ───────────────────────────────────────────
-async function handleMyRounds(body: { token: string; tourn_id: string; person_name?: string }) {
+async function handleMyRounds(body: { token: string; tourn_id: string; person_name?: string; person_id?: string }) {
   if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
 
   try {
     const pages: string[] = [];
     const entryId = await findEntryId(body.token, body.tourn_id, body.person_name);
+
+    // Strategy 0: If person_id is available, try the ranked results page directly
+    if (!entryId && body.person_id) {
+      try {
+        const res = await tabroomFetch(
+          `/index/results/ranked_list.mhtml?person_id=${body.person_id}&tourn_id=${body.tourn_id}`, body.token
+        );
+        const html = await res.text();
+        if (!isLoginPage(html) && !html.includes("404 Not Found")) {
+          const entryMatch = html.match(/entry_id=(\d+)/);
+          if (entryMatch) {
+            const erRes = await tabroomFetch(
+              `/index/tourn/postings/entry_record.mhtml?tourn_id=${body.tourn_id}&entry_id=${entryMatch[1]}`, body.token
+            );
+            const erHtml = await erRes.text();
+            if (!isLoginPage(erHtml) && !erHtml.includes("404 Not Found")) {
+              pages.push(erHtml);
+              console.log(`MyRounds: Found entry_record via person_id=${body.person_id}, entry_id=${entryMatch[1]}`);
+            }
+          }
+        }
+      } catch (e) { console.log("MyRounds person_id lookup failed:", (e as Error).message); }
+    }
 
     if (entryId && entryId.startsWith("__HTML__")) {
       const parts = entryId.split("__");

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 interface GeoState {
   lat: number | null;
@@ -16,6 +16,7 @@ export function useGeolocation() {
     loading: false,
     granted: false,
   });
+  const watchIdRef = useRef<number | null>(null);
 
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -25,6 +26,7 @@ export function useGeolocation() {
 
     setState((s) => ({ ...s, loading: true, error: null }));
 
+    // Get initial position quickly
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setState({
@@ -49,6 +51,35 @@ export function useGeolocation() {
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
+
+    // Start watching for live updates
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        setState({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          error: null,
+          loading: false,
+          granted: true,
+        });
+      },
+      () => {
+        // Silently ignore watch errors — we already have initial position
+      },
+      { enableHighAccuracy: true, maximumAge: 10000 }
+    );
+  }, []);
+
+  // Cleanup watcher on unmount
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
   }, []);
 
   return { ...state, requestLocation };

@@ -17,8 +17,6 @@ export function NavigationTab() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchRef = useRef<HTMLDivElement>(null);
 
   const tournamentName = selectedTournament?.name || "No Tournament";
 
@@ -57,25 +55,7 @@ export function NavigationTab() {
     .filter((p) => p.room)
     .map((p, i) => ({ label: `Pairing ${i + 1}`, room: p.room }));
 
-  // Filtered rooms based on search
-  const filteredRooms = useMemo(() => {
-    if (!searchQuery.trim()) return allRooms;
-    const q = searchQuery.toLowerCase();
-    return allRooms.filter((r) => r.toLowerCase().includes(q));
-  }, [allRooms, searchQuery]);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-        setSearchOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  // Map interaction handlers
+  // Map interaction handlers for venue images
   const handleZoomIn = useCallback(() => setZoom((z) => Math.min(z + 0.3, 4)), []);
   const handleZoomOut = useCallback(() => setZoom((z) => Math.max(z - 0.3, 0.5)), []);
   const handleReset = useCallback(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, []);
@@ -99,7 +79,6 @@ export function NavigationTab() {
     setZoom((z) => Math.min(Math.max(z + delta, 0.5), 4));
   }, []);
 
-  const hasMap = venueData && (venueData.map_images.length > 0 || venueData.embedded_map_url);
   const activeImage = venueData?.map_images[activeImageIdx];
 
   // Always generate a Google Maps embed as fallback using tournament name
@@ -112,47 +91,11 @@ export function NavigationTab() {
       <h2 className="font-serif text-[26px] font-extralight tracking-[-1px] italic mb-0.5">
         Navigation
       </h2>
-      <p className="text-muted-foreground text-[11.5px] mb-4">
-        {tournamentName} · Venue map
+      <p className="text-muted-foreground text-[11.5px] mb-3">
+        {tournamentName} &middot; Venue map
       </p>
 
-      {/* Room search */}
-      {allRooms.length > 0 && (
-        <div ref={searchRef} className="relative mb-3">
-          <div className="flow-label mb-1.5">Find a Room</div>
-          <input
-            type="text"
-            placeholder="Search rooms (e.g. Room 107)…"
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setSearchOpen(true); }}
-            onFocus={() => setSearchOpen(true)}
-            className="w-full px-3 py-2 rounded-lg border border-border bg-card text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary transition-colors"
-          />
-          {searchOpen && searchQuery.trim() && (
-            <div className="absolute left-0 right-0 top-full mt-1 bg-card border border-border rounded-lg shadow-lg z-50 max-h-[200px] overflow-y-auto">
-              {filteredRooms.length === 0 ? (
-                <div className="px-3 py-2.5 text-[11px] text-muted-foreground">No rooms match "{searchQuery}"</div>
-              ) : (
-                filteredRooms.map((room) => (
-                  <button
-                    key={room}
-                    onClick={() => { setSelectedRoom(room); setSearchQuery(room); setSearchOpen(false); }}
-                    className={`w-full text-left px-3 py-2 text-[12px] border-none cursor-pointer transition-colors ${
-                      selectedRoom === room
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "bg-card text-foreground hover:bg-flow-surface2"
-                    }`}
-                  >
-                    {room}
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Quick-jump from pairings */}
+      {/* Quick-jump room buttons from pairings */}
       {pairingRooms.length > 0 && (
         <div className="mb-3">
           <div className="flow-label mb-1.5">Your Room Assignments</div>
@@ -178,56 +121,64 @@ export function NavigationTab() {
       {loading && (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
           <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mb-3" />
-          <p className="text-[12px]">Loading venue map…</p>
+          <p className="text-[12px]">Loading venue map...</p>
         </div>
       )}
 
       {/* Error state */}
       {error && !loading && (
         <div className="flow-card text-center py-8">
-          <span className="text-2xl mb-2 block">⚠️</span>
           <p className="text-[12px] text-muted-foreground mb-2">Could not load venue map</p>
           <p className="text-[11px] text-muted-foreground/70">{error}</p>
         </div>
       )}
 
-      {/* Google Maps - interactive SDK or iframe fallback */}
+      {/* Google Maps - interactive SDK (full-screen) or iframe fallback */}
       {!loading && !error && venueData && (
         <div className="mb-3">
-          <div className="flow-label mb-1.5">Venue Map</div>
-
           {GOOGLE_MAPS_API_KEY ? (
             <VenueGoogleMap
               venueAddress={venueData.venue_address}
               venueName={venueData.venue_name}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              rooms={allRooms}
+              selectedRoom={selectedRoom}
+              onRoomSelect={(room) => { setSelectedRoom(room); setSearchQuery(room); }}
+              tournamentName={tournamentName}
             />
           ) : (
-            <div className="relative w-full aspect-[16/10] rounded-lg border border-border overflow-hidden">
-              <iframe
-                src={embedUrl}
-                className="absolute inset-0 w-full h-full"
-                allowFullScreen
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-                title="Venue Map"
-              />
-            </div>
-          )}
-
-          {venueData.venue_name && (
-            <p className="text-[11px] text-foreground mt-2">{venueData.venue_name}</p>
-          )}
-          {venueData.venue_address && (
-            <p className="text-[10px] text-muted-foreground mt-0.5">{venueData.venue_address}</p>
+            <>
+              {/* Iframe fallback when no API key */}
+              <div className="flow-label mb-1.5">Venue Map</div>
+              <div className="relative w-full aspect-[16/10] rounded-lg border border-border overflow-hidden">
+                <iframe
+                  src={embedUrl}
+                  className="absolute inset-0 w-full h-full"
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  title="Venue Map"
+                />
+              </div>
+              {venueData.venue_name && (
+                <p className="text-[11px] text-foreground mt-2">{venueData.venue_name}</p>
+              )}
+              {venueData.venue_address && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">{venueData.venue_address}</p>
+              )}
+            </>
           )}
         </div>
       )}
+
+      {/* Venue uploaded images (floor plans, campus maps) */}
       {!loading && venueData && venueData.map_images.length > 0 && (
         <div>
-          {/* Image selector if multiple */}
-          {venueData.map_images.length > 1 && (
-            <div className="flex items-center gap-1.5 mb-2">
-              <div className="flow-label">Maps</div>
+          <div className="flex items-center gap-1.5 mb-2">
+            <div className="flow-label">Venue Images</div>
+            {/* Image selector if multiple */}
+            {venueData.map_images.length > 1 && (
               <div className="flex gap-1 ml-auto">
                 {venueData.map_images.map((_, i) => (
                   <button
@@ -243,10 +194,10 @@ export function NavigationTab() {
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Map viewer */}
+          {/* Image viewer with zoom/pan */}
           <div
             className="relative w-full aspect-[4/3] rounded-lg border border-border overflow-hidden bg-flow-surface2 select-none"
             onMouseDown={handleMouseDown}
@@ -275,7 +226,7 @@ export function NavigationTab() {
                 onClick={handleZoomOut}
                 className="w-7 h-7 rounded-md bg-card/90 backdrop-blur-sm border border-border text-foreground text-[14px] cursor-pointer flex items-center justify-center hover:bg-card"
               >
-                −
+                -
               </button>
               <button
                 onClick={handleReset}
@@ -294,9 +245,8 @@ export function NavigationTab() {
         </div>
       )}
 
-
-
-      {selectedRoom && (
+      {/* Selected room card (only shown when no API key / no map overlay) */}
+      {selectedRoom && !GOOGLE_MAPS_API_KEY && (
         <div className="mt-3 flow-card">
           <div className="flex items-center justify-between">
             <div>
@@ -309,7 +259,7 @@ export function NavigationTab() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 bg-primary text-primary-foreground px-2.5 py-1.5 rounded-md text-[11px] font-medium no-underline"
             >
-              ↗ External Maps
+              External Maps
             </a>
           </div>
         </div>

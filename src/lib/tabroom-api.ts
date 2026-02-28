@@ -5,7 +5,11 @@ const FUNCTION_NAME = "tabroom-proxy";
 async function callTabroom<T = unknown>(action: string, body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke(`${FUNCTION_NAME}/${action}`, { body });
   if (error) throw new Error(error.message || "Tabroom proxy request failed");
-  if (data?.error) throw new Error(data.error);
+  // Only throw on error if the response has no useful data alongside it
+  // (some responses like judge search return partial data + an error message)
+  if (data?.error && !data?.name && !data?.results && !data?.rounds && !data?.tournaments) {
+    throw new Error(data.error);
+  }
   return data as T;
 }
 
@@ -98,12 +102,12 @@ export async function tabroomGetJudge(judgeId?: string, judgeName?: string, toke
   return callTabroom<TabroomJudgeInfo>("judge", { judge_id: judgeId, judge_name: judgeName, token });
 }
 
-export async function tabroomGetBallots(token: string, tournId: string, entryId?: string, entryName?: string, personName?: string): Promise<{ rounds: TabroomRound[]; total: number; placement?: string | null; html_preview?: string }> {
-  return callTabroom("ballots", { token, tourn_id: tournId, entry_id: entryId, entry_name: entryName, person_name: personName });
+export async function tabroomGetBallots(token: string, tournId: string, entryId?: string, entryName?: string, personName?: string, personId?: string): Promise<{ rounds: TabroomRound[]; total: number; placement?: string | null; html_preview?: string }> {
+  return callTabroom("ballots", { token, tourn_id: tournId, entry_id: entryId, entry_name: entryName, person_name: personName, person_id: personId });
 }
 
-export async function tabroomGetMyRounds(token: string, tournId: string, personName?: string): Promise<{ rounds: TabroomRound[]; record: { wins: number; losses: number }; total: number; html_preview?: string }> {
-  return callTabroom("my-rounds", { token, tourn_id: tournId, person_name: personName });
+export async function tabroomGetMyRounds(token: string, tournId: string, personName?: string, personId?: string): Promise<{ rounds: TabroomRound[]; record: { wins: number; losses: number }; total: number; html_preview?: string }> {
+  return callTabroom("my-rounds", { token, tourn_id: tournId, person_name: personName, person_id: personId });
 }
 
 export async function tabroomGetEntries(token: string): Promise<{ entries: TabroomTournament[]; total: number }> {

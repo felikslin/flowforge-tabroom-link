@@ -113,13 +113,13 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     if (!selectedTournament) return;
     setLoad("rounds", true); setErr("rounds", null);
     try {
-      const res = await tabroomGetMyRounds(user.token, selectedTournament.id, user.name);
+      const res = await tabroomGetMyRounds(user.token, selectedTournament.id, user.name, user.person_id || undefined);
       setMyRounds(res.rounds || []);
       setMyRecord(res.record || { wins: 0, losses: 0 });
       setHtmlPreviews((h) => ({ ...h, rounds: res.html_preview }));
     } catch (err: any) { setErr("rounds", err.message); }
     finally { setLoad("rounds", false); }
-  }, [user.token, selectedTournament]);
+  }, [user.token, selectedTournament, user.name, user.person_id]);
 
   useEffect(() => { if (selectedTournament) refreshMyRounds(); }, [selectedTournament, refreshMyRounds]);
 
@@ -128,7 +128,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     if (!selectedTournament) return;
     setLoad("ballots", true); setErr("ballots", null);
     try {
-      const res = await tabroomGetBallots(user.token, selectedTournament.id, undefined, undefined, user.name);
+      const res = await tabroomGetBallots(user.token, selectedTournament.id, undefined, undefined, user.name, user.person_id || undefined);
       const rounds = (res.rounds || []).map((rd: TabroomRound) => ({
         ...rd,
         tournament_name: selectedTournament.name,
@@ -137,7 +137,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
       setHtmlPreviews((h) => ({ ...h, ballots: res.html_preview || undefined }));
     } catch (err: any) { setErr("ballots", err.message); }
     finally { setLoad("ballots", false); }
-  }, [user.token, selectedTournament]);
+  }, [user.token, selectedTournament, user.name, user.person_id]);
 
   useEffect(() => { if (selectedTournament) refreshBallots(); }, [selectedTournament, refreshBallots]);
 
@@ -167,9 +167,19 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
   const lookupJudge = useCallback(async (name?: string, id?: string) => {
     setLoad("judge", true); setErr("judge", null);
     try {
+      console.log("[TabroomContext] lookupJudge called:", { name, id });
       const res = await tabroomGetJudge(id, name, user.token);
+      console.log("[TabroomContext] lookupJudge response:", {
+        name: res?.name,
+        hasParadigm: !!res?.paradigm,
+        resultsCount: res?.results?.length,
+        source: (res as any)?.source,
+      });
       setJudgeInfo(res);
-    } catch (err: any) { setErr("judge", err.message); }
+    } catch (err: any) {
+      console.error("[TabroomContext] lookupJudge error:", err.message);
+      setErr("judge", err.message);
+    }
     finally { setLoad("judge", false); }
   }, [user.token]);
 
