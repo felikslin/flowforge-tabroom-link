@@ -94,7 +94,7 @@ export async function tabroomGetMyTournaments(token: string): Promise<{ tourname
   return callTabroom("my-tournaments", { token });
 }
 
-export async function tabroomGetPairings(token: string, tournId: string, eventId?: string, roundId?: string): Promise<{ pairings: TabroomPairing[]; total: number; coin_flip?: TabroomCoinFlip }> {
+export async function tabroomGetPairings(token: string, tournId: string, eventId?: string, roundId?: string): Promise<{ pairings: TabroomPairing[]; headers?: string[]; total: number; coin_flip?: TabroomCoinFlip }> {
   return callTabroom("pairings", { token, tourn_id: tournId, event_id: eventId, round_id: roundId });
 }
 

@@ -11,6 +11,7 @@ import { useGeolocation } from "@/hooks/use-geolocation";
 import { useGeocode } from "@/hooks/use-geocode";
 import { PlacesSearchBar } from "./PlacesSearchBar";
 import { DirectionsSteps } from "./DirectionsSteps";
+import { NavigationMode } from "./NavigationMode";
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
@@ -55,9 +56,10 @@ function VenueMapInner({
   const [showingDirections, setShowingDirections] = useState(false);
   const [directionsError, setDirectionsError] = useState<string | null>(null);
   const [searchDestination, setSearchDestination] = useState<{ lat: number; lng: number; name: string } | null>(null);
+  const [navigationMode, setNavigationMode] = useState(false);
 
-  // Watch location continuously when directions are active
-  const geo = useGeolocation(showingDirections);
+  // Watch location continuously when directions are active or in navigation mode
+  const geo = useGeolocation(showingDirections || navigationMode);
 
   const activeDestination = searchDestination || venueCoords;
   const activeDestinationName = searchDestination?.name || venueName || "Venue";
@@ -140,7 +142,18 @@ function VenueMapInner({
     setRouteSummary(null);
     setShowingDirections(false);
     setSearchDestination(null);
+    setNavigationMode(false);
   }, [directionsRenderer]);
+
+  const startNavigation = useCallback(() => {
+    if (directionsResult && geo.lat && geo.lng) {
+      setNavigationMode(true);
+    }
+  }, [directionsResult, geo.lat, geo.lng]);
+
+  const exitNavigation = useCallback(() => {
+    setNavigationMode(false);
+  }, []);
 
   const handlePlaceSelected = useCallback(
     (place: { lat: number; lng: number; name: string }) => {
@@ -232,18 +245,26 @@ function VenueMapInner({
         {geo.granted && activeDestination && !showingDirections && (
           <button
             onClick={() => requestDirections()}
-            className="px-2.5 py-1.5 rounded-md text-[11px] bg-primary text-primary-foreground border-none cursor-pointer font-medium"
+            className="px-2.5 py-1.5 rounded-md text-[11px] bg-primary text-primary-foreground border-none cursor-pointer font-medium hover:opacity-90 transition-opacity"
           >
             Get Directions
           </button>
         )}
         {showingDirections && (
-          <button
-            onClick={clearDirections}
-            className="px-2.5 py-1.5 rounded-md text-[11px] border border-border bg-card text-foreground cursor-pointer hover:bg-accent/40 transition-colors"
-          >
-            Clear Directions
-          </button>
+          <>
+            <button
+              onClick={startNavigation}
+              className="px-3 py-2 rounded-md text-[13px] bg-primary text-primary-foreground border-none cursor-pointer font-semibold hover:opacity-90 transition-opacity shadow-md"
+            >
+              Start
+            </button>
+            <button
+              onClick={clearDirections}
+              className="px-2.5 py-1.5 rounded-md text-[11px] border border-border bg-card text-foreground cursor-pointer hover:bg-accent/40 transition-colors"
+            >
+              Clear Directions
+            </button>
+          </>
         )}
         {showingDirections && routeSummary && (
           <span className="text-[11px] text-muted-foreground">
@@ -265,6 +286,18 @@ function VenueMapInner({
       {geocodeError && <p className="text-[10px] text-destructive mt-1">{geocodeError}</p>}
       {geo.error && <p className="text-[10px] text-destructive mt-1">{geo.error}</p>}
       {directionsError && <p className="text-[10px] text-destructive mt-1">{directionsError}</p>}
+
+      {/* Full-screen navigation mode */}
+      {navigationMode && directionsResult && geo.lat && geo.lng && (
+        <NavigationMode
+          directions={directionsResult}
+          userLat={geo.lat}
+          userLng={geo.lng}
+          userHeading={geo.heading}
+          destinationName={activeDestinationName}
+          onExit={exitNavigation}
+        />
+      )}
     </div>
   );
 }

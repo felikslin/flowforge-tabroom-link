@@ -200,14 +200,45 @@ async function handlePairings(body: { token: string; tourn_id: string; event_id?
     const res = await tabroomFetch(path, body.token);
     const html = await res.text();
 
+    // Extract table headers dynamically
+    const headers: string[] = [];
+    const headerRegex = /<thead[^>]*>([\s\S]*?)<\/thead>/i;
+    const headerMatch = headerRegex.exec(html);
+    if (headerMatch) {
+      const headerCells = headerMatch[1].match(/<th[^>]*>([\s\S]*?)<\/th>/gi) || [];
+      headers.push(...headerCells.map(cell => 
+        cell.replace(/<[^>]+>/g, "").trim().toLowerCase().replace(/\s+/g, "_")
+      ));
+    }
+
+    // If no headers found, use default column names
+    if (headers.length === 0) {
+      headers.push("room", "aff", "neg", "judge", "time", "flight", "status");
+    }
+
     const pairings: Array<Record<string, string>> = [];
     const rowRegex = /<tr[^>]*class="[^"]*row[^"]*"[^>]*>([\s\S]*?)<\/tr>/g;
     let match;
     while ((match = rowRegex.exec(html)) !== null) {
       const cells = match[1].match(/<td[^>]*>([\s\S]*?)<\/td>/g) || [];
-      const cellText = cells.map((c: string) => c.replace(/<[^>]+>/g, "").trim());
-      if (cellText.length >= 3) {
-        pairings.push({ room: cellText[0] || "", aff: cellText[1] || "", neg: cellText[2] || "", judge: cellText[3] || "" });
+      const cellText = cells.map((c: string) => {
+        // Extract text and preserve links for judges
+        const text = c.replace(/<br\s*\/?>/gi, ", ").replace(/<[^>]+>/g, "").trim();
+        return text;
+      });
+      
+      if (cellText.length >= 2) {
+        const row: Record<string, string> = {};
+        cellText.forEach((text, i) => {
+          const key = headers[i] || `column_${i}`;
+          row[key] = text;
+        });
+        // Ensure basic fields exist for backwards compatibility
+        if (!row.room && cellText[0]) row.room = cellText[0];
+        if (!row.aff && cellText[1]) row.aff = cellText[1];
+        if (!row.neg && cellText[2]) row.neg = cellText[2];
+        if (!row.judge && cellText[3]) row.judge = cellText[3];
+        pairings.push(row);
       }
     }
 
@@ -231,7 +262,13 @@ async function handlePairings(body: { token: string; tourn_id: string; event_id?
       if (sideResultMatch) coinFlip.assigned_side = sideResultMatch[1].toUpperCase();
     }
 
-    return json({ pairings, total: pairings.length, coin_flip: coinFlip, html_preview: html.substring(0, 5000) });
+    return json({ 
+      pairings, 
+      total: pairings.length, 
+      headers: headers.length > 0 ? headers : undefined,
+      coin_flip: coinFlip, 
+      html_preview: html.substring(0, 5000) 
+    });
   } catch (e) {
     return err(`Failed to fetch pairings: ${(e as Error).message}`, 502);
   }

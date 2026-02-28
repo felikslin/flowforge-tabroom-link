@@ -20,6 +20,7 @@ interface TabroomState {
   tournaments: TabroomTournament[];
   selectedTournament: TabroomTournament | null;
   pairings: TabroomPairing[];
+  pairingsHeaders: string[];
   coinFlip: TabroomCoinFlip | null;
   ballots: TabroomRound[];
   myRounds: TabroomRound[];
@@ -53,6 +54,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
   const [tournaments, setTournaments] = useState<TabroomTournament[]>([]);
   const [selectedTournament, setSelectedTournament] = useState<TabroomTournament | null>(null);
   const [pairings, setPairings] = useState<TabroomPairing[]>([]);
+  const [pairingsHeaders, setPairingsHeaders] = useState<string[]>([]);
   const [coinFlip, setCoinFlip] = useState<TabroomCoinFlip | null>(null);
   const [ballots, setBallots] = useState<(TabroomRound & { tournament_name?: string })[]>([]);
   const [myRounds, setMyRounds] = useState<(TabroomRound & { tournament_name?: string })[]>([]);
@@ -101,6 +103,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     try {
       const res = await tabroomGetPairings(user.token, selectedTournament.id);
       setPairings(res.pairings || []);
+      setPairingsHeaders(res.headers || []);
       setCoinFlip(res.coin_flip || null);
     } catch (err: any) { setErr("pairings", err.message); }
     finally { setLoad("pairings", false); }
@@ -185,7 +188,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
 
   return (
     <TabroomContext.Provider value={{
-      user, tournaments, selectedTournament, pairings, coinFlip,
+      user, tournaments, selectedTournament, pairings, pairingsHeaders, coinFlip,
       ballots, myRounds, myRecord, judgeInfo, entries,
       upcomingTournaments, loading, errors,
       selectTournament, refreshPairings, refreshBallots,

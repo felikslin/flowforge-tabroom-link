@@ -24,6 +24,24 @@ const Index = () => {
     }
   }, []);
 
+  // Auto-request location permission when user logs in
+  useEffect(() => {
+    if (user && navigator.geolocation) {
+      const hasAskedBefore = localStorage.getItem("location_permission_asked");
+      if (!hasAskedBefore) {
+        navigator.geolocation.getCurrentPosition(
+          () => {
+            localStorage.setItem("location_permission_asked", "true");
+          },
+          () => {
+            localStorage.setItem("location_permission_asked", "true");
+          },
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      }
+    }
+  }, [user]);
+
   const handleSignOut = () => {
     localStorage.removeItem("flow_user");
     setUser(null);

@@ -1,7 +1,20 @@
 import { useTabroom } from "@/contexts/TabroomContext";
 
 export function PairingsTab() {
-  const { pairings, loading, errors, selectedTournament, refreshPairings, htmlPreviews } = useTabroom();
+  const { pairings, pairingsHeaders, loading, errors, selectedTournament, refreshPairings, htmlPreviews } = useTabroom();
+
+  // Use headers from API or fallback to default
+  const headers = pairingsHeaders && pairingsHeaders.length > 0 
+    ? pairingsHeaders 
+    : ["room", "aff", "neg", "judge"];
+
+  // Format header for display
+  const formatHeader = (header: string) => {
+    return header
+      .split("_")
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  };
 
   return (
     <div className="animate-fadein">
@@ -45,29 +58,36 @@ export function PairingsTab() {
 
           {pairings.length > 0 ? (
             <div className="flow-card p-0 overflow-hidden">
-              <table className="w-full border-collapse text-[11.5px]">
-                <thead>
-                  <tr>
-                    {["Room", "AFF", "NEG", "Judge"].map((h) => (
-                      <th key={h} className="text-left px-2.5 py-2 flow-label border-b border-border">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {pairings.map((row, i) => (
-                    <tr key={i} className="hover:bg-flow-surface2 transition-colors">
-                      <td className="px-2.5 py-2.5 border-b border-border">{row.room}</td>
-                      <td className="px-2.5 py-2.5 border-b border-border">{row.aff}</td>
-                      <td className="px-2.5 py-2.5 border-b border-border">{row.neg}</td>
-                      <td className="px-2.5 py-2.5 border-b border-border">
-                        <span className="text-primary underline cursor-pointer">{row.judge}</span>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-[11.5px]">
+                  <thead>
+                    <tr>
+                      {headers.map((h) => (
+                        <th key={h} className="text-left px-2.5 py-2 flow-label border-b border-border whitespace-nowrap">
+                          {formatHeader(h)}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {pairings.map((row, i) => (
+                      <tr key={i} className="hover:bg-flow-surface2 transition-colors">
+                        {headers.map((header, j) => (
+                          <td key={j} className="px-2.5 py-2.5 border-b border-border">
+                            {header === "judge" || header.includes("judge") ? (
+                              <span className="text-primary underline cursor-pointer">
+                                {row[header] || "-"}
+                              </span>
+                            ) : (
+                              <span>{row[header] || "-"}</span>
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : (
             <div className="text-center py-6 text-muted-foreground text-xs">
