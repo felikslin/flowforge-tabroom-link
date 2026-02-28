@@ -54,11 +54,7 @@ function VenueMapInner({
   const [routeSummary, setRouteSummary] = useState<{ distance: string; duration: string } | null>(null);
   const [showingDirections, setShowingDirections] = useState(false);
   const [directionsError, setDirectionsError] = useState<string | null>(null);
-<<<<<<< HEAD
-  const [mapReady, setMapReady] = useState(false);
-=======
   const [searchDestination, setSearchDestination] = useState<{ lat: number; lng: number; name: string } | null>(null);
->>>>>>> 6ae9db0758ceab94b0a9b4f37555e922687cdf97
 
   // Watch location continuously when directions are active
   const geo = useGeolocation(showingDirections);
@@ -89,19 +85,7 @@ function VenueMapInner({
     }
   }, [map, activeDestination, geo.lat, geo.lng]);
 
-<<<<<<< HEAD
-  // Mark map as ready for smooth fade-in
-  useEffect(() => {
-    if (map) {
-      const timer = setTimeout(() => setMapReady(true), 300);
-      return () => clearTimeout(timer);
-    }
-  }, [map]);
-
-  // Initialize DirectionsRenderer when map and routes library are ready
-=======
   // Initialize DirectionsRenderer
->>>>>>> 6ae9db0758ceab94b0a9b4f37555e922687cdf97
   useEffect(() => {
     if (!map || !routesLib) return;
     const renderer = new routesLib.DirectionsRenderer({
@@ -177,24 +161,12 @@ function VenueMapInner({
   );
 
   return (
-<<<<<<< HEAD
-    <div className="relative w-full" style={{ height: "calc(100vh - 120px)", minHeight: "400px" }}>
-      {/* Map fills full container */}
-      <div
-        className="absolute inset-0 rounded-xl overflow-hidden border border-border"
-        style={{
-          opacity: mapReady ? 1 : 0,
-          transition: "opacity 0.4s ease-in-out",
-        }}
-      >
-=======
     <div>
       {/* Search bar */}
       <PlacesSearchBar onPlaceSelected={handlePlaceSelected} />
 
       {/* Map container */}
       <div className="relative w-full aspect-[16/10] rounded-lg border border-border overflow-hidden">
->>>>>>> 6ae9db0758ceab94b0a9b4f37555e922687cdf97
         <Map
           defaultCenter={defaultCenter}
           defaultZoom={defaultZoom}
@@ -207,10 +179,9 @@ function VenueMapInner({
           style={{ width: "100%", height: "100%" }}
           mapId="venue-map"
         >
-<<<<<<< HEAD
-          {/* Venue marker */}
-          {venueCoords && (
-            <AdvancedMarker position={venueCoords} title={venueName || "Venue"}>
+          {/* Destination marker */}
+          {activeDestination && (
+            <AdvancedMarker position={activeDestination} title={activeDestinationName}>
               <Pin
                 background="#2A5C45"
                 borderColor="#1a3d2e"
@@ -219,12 +190,7 @@ function VenueMapInner({
             </AdvancedMarker>
           )}
 
-          {/* User location marker - animated blue dot */}
-=======
-          {activeDestination && (
-            <Marker position={activeDestination} title={activeDestinationName} />
-          )}
->>>>>>> 6ae9db0758ceab94b0a9b4f37555e922687cdf97
+          {/* User location marker */}
           {geo.lat && geo.lng && (
             <AdvancedMarker
               position={{ lat: geo.lat, lng: geo.lng }}
@@ -243,66 +209,6 @@ function VenueMapInner({
             </AdvancedMarker>
           )}
         </Map>
-<<<<<<< HEAD
-      </div>
-
-      {/* Geocoding loading overlay */}
-      {(geocoding || !mapReady) && (
-        <div className="absolute inset-0 flex items-center justify-center bg-card/80 rounded-xl z-10">
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <span className="text-[11px] text-muted-foreground">Loading map...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Floating search bar */}
-      {onSearchChange && rooms.length > 0 && (
-        <div className="absolute top-3 left-3 right-3 z-20">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search rooms..."
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg bg-card/95 backdrop-blur-sm border border-border text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary transition-colors"
-              style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
-            />
-            {searchQuery && filteredRooms.length > 0 && (
-              <div
-                className="absolute left-0 right-0 top-full mt-1 bg-card/95 backdrop-blur-sm border border-border rounded-lg max-h-[200px] overflow-y-auto"
-                style={{ boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}
-              >
-                {filteredRooms.map((room) => (
-                  <button
-                    key={room}
-                    onClick={() => {
-                      onRoomSelect?.(room);
-                      onSearchChange("");
-                    }}
-                    className={`w-full text-left px-4 py-2 text-[12px] border-none cursor-pointer transition-colors ${
-                      selectedRoom === room
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "bg-transparent text-foreground hover:bg-flow-surface2"
-                    }`}
-                  >
-                    {room}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Floating controls - bottom left */}
-      <div className="absolute bottom-3 left-3 z-20 flex flex-col gap-2">
-        {!geo.granted && !geo.loading && (
-          <button
-            onClick={geo.requestLocation}
-            className="px-3 py-2 rounded-lg text-[11px] bg-card/95 backdrop-blur-sm border border-border text-foreground cursor-pointer hover:bg-card transition-colors font-medium"
-            style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
-=======
         {geocoding && (
           <div className="absolute inset-0 flex items-center justify-center bg-card/60">
             <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -316,29 +222,17 @@ function VenueMapInner({
           <button
             onClick={geo.requestLocation}
             className="px-2.5 py-1.5 rounded-md text-[11px] border border-border bg-card text-foreground cursor-pointer hover:bg-accent/40 transition-colors"
->>>>>>> 6ae9db0758ceab94b0a9b4f37555e922687cdf97
           >
             Enable Location
           </button>
         )}
         {geo.loading && (
-          <div
-            className="px-3 py-2 rounded-lg text-[10px] text-muted-foreground bg-card/95 backdrop-blur-sm border border-border"
-            style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
-          >
-            Getting location...
-          </div>
+          <span className="text-[10px] text-muted-foreground">Getting location...</span>
         )}
         {geo.granted && activeDestination && !showingDirections && (
           <button
-<<<<<<< HEAD
-            onClick={requestDirections}
-            className="px-3 py-2 rounded-lg text-[11px] bg-primary text-primary-foreground border-none cursor-pointer font-medium"
-            style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
-=======
             onClick={() => requestDirections()}
             className="px-2.5 py-1.5 rounded-md text-[11px] bg-primary text-primary-foreground border-none cursor-pointer font-medium"
->>>>>>> 6ae9db0758ceab94b0a9b4f37555e922687cdf97
           >
             Get Directions
           </button>
@@ -346,75 +240,11 @@ function VenueMapInner({
         {showingDirections && (
           <button
             onClick={clearDirections}
-<<<<<<< HEAD
-            className="px-3 py-2 rounded-lg text-[11px] bg-card/95 backdrop-blur-sm border border-border text-foreground cursor-pointer hover:bg-card transition-colors"
-            style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
-=======
             className="px-2.5 py-1.5 rounded-md text-[11px] border border-border bg-card text-foreground cursor-pointer hover:bg-accent/40 transition-colors"
->>>>>>> 6ae9db0758ceab94b0a9b4f37555e922687cdf97
           >
             Clear Directions
           </button>
         )}
-<<<<<<< HEAD
-      </div>
-
-      {/* Floating route summary - bottom center */}
-      {showingDirections && routeSummary && (
-        <div
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-4 py-2.5 rounded-lg bg-card/95 backdrop-blur-sm border border-border text-foreground"
-          style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
-        >
-          <div className="text-[12px] font-medium text-center">
-            {routeSummary.distance} &middot; {routeSummary.duration}
-          </div>
-        </div>
-      )}
-
-      {/* Selected room indicator - floating pill */}
-      {selectedRoom && (
-        <div
-          className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-lg bg-primary text-primary-foreground"
-          style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] font-medium">{selectedRoom}</span>
-            <a
-              href={`https://maps.google.com?q=${encodeURIComponent(selectedRoom + " " + (tournamentName || ""))}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[10px] text-primary-foreground/80 underline"
-            >
-              Open in Maps
-            </a>
-          </div>
-        </div>
-      )}
-
-      {/* Error messages - floating bottom */}
-      {(geocodeError || geo.error || directionsError) && (
-        <div
-          className="absolute bottom-16 left-3 right-3 z-20 px-3 py-2 rounded-lg bg-destructive/90 text-destructive-foreground text-[11px]"
-          style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
-        >
-          {geocodeError || geo.error || directionsError}
-        </div>
-      )}
-
-      {/* Venue info label - floating bottom right */}
-      {(venueName || venueAddress) && (
-        <div
-          className="absolute bottom-3 right-3 z-20 max-w-[220px] px-3 py-2 rounded-lg bg-card/95 backdrop-blur-sm border border-border"
-          style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
-        >
-          {venueName && (
-            <p className="text-[11px] font-medium text-foreground truncate">{venueName}</p>
-          )}
-          {venueAddress && (
-            <p className="text-[10px] text-muted-foreground truncate">{venueAddress}</p>
-          )}
-        </div>
-=======
         {showingDirections && routeSummary && (
           <span className="text-[11px] text-muted-foreground">
             {routeSummary.distance} · {routeSummary.duration}
@@ -429,7 +259,6 @@ function VenueMapInner({
           userLat={geo.lat}
           userLng={geo.lng}
         />
->>>>>>> 6ae9db0758ceab94b0a9b4f37555e922687cdf97
       )}
 
       {/* Errors */}
