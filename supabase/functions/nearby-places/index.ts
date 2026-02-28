@@ -138,6 +138,6 @@ serve(async (req) => {
     return json({ places, total: places.length });
   } catch (e) {
     console.error("Nearby places error:", e);
-    return json({ error: e.message }, 500);
+    return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
   }
 });
