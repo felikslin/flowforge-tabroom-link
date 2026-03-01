@@ -119,14 +119,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
       const res = await tabroomGetPairingsEvents(user.token, selectedTournament.id);
       const events = res.events || [];
       setPairingsEvents(events);
-      // Auto-select first event and first round
-      if (events.length > 0) {
-        const firstEvent = events[0];
-        setSelectedPairingsEvent(firstEvent);
-        if (firstEvent.rounds.length > 0) {
-          setSelectedPairingsRound(firstEvent.rounds[0]);
-        }
-      }
+      // Don't auto-select - let user choose event first
     } catch (err: any) { setErr("pairingsEvents", err.message); }
     finally { setLoad("pairingsEvents", false); }
   }, [user.token, selectedTournament]);
@@ -155,13 +148,9 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
 
   const selectPairingsEvent = useCallback((event: TabroomPairingsEvent | null) => {
     setSelectedPairingsEvent(event);
-    // Auto-select first round of the selected event
-    if (event && event.rounds.length > 0) {
-      setSelectedPairingsRound(event.rounds[0]);
-    } else {
-      setSelectedPairingsRound(null);
-      setPairings([]);
-    }
+    // Don't auto-select first round - let user choose round
+    setSelectedPairingsRound(null);
+    setPairings([]);
   }, []);
 
   const selectPairingsRound = useCallback((round: TabroomPairingsRound | null) => {
