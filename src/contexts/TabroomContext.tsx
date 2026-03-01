@@ -3,6 +3,7 @@ import type { FlowUser } from "@/types/flow";
 import {
   tabroomGetMyTournaments,
   tabroomGetPairings,
+  tabroomGetPairingsEvents,
   tabroomGetBallots,
   tabroomGetJudge,
   tabroomGetMyRounds,
@@ -13,6 +14,8 @@ import {
   type TabroomJudgeInfo,
   type TabroomCoinFlip,
   type TabroomRound,
+  type TabroomPairingsEvent,
+  type TabroomPairingsRound,
 } from "@/lib/tabroom-api";
 
 interface TabroomState {
@@ -21,22 +24,25 @@ interface TabroomState {
   selectedTournament: TabroomTournament | null;
   pairings: TabroomPairing[];
   pairingsHeaders: string[];
+  pairingsEvents: TabroomPairingsEvent[];
+  selectedPairingsEvent: TabroomPairingsEvent | null;
+  selectedPairingsRound: TabroomPairingsRound | null;
   coinFlip: TabroomCoinFlip | null;
   ballots: TabroomRound[];
   myRounds: TabroomRound[];
   myRecord: { wins: number; losses: number };
   judgeInfo: TabroomJudgeInfo | null;
   entries: TabroomTournament[];
-  
   upcomingTournaments: TabroomTournament[];
   loading: Record<string, boolean>;
   errors: Record<string, string | null>;
   selectTournament: (t: TabroomTournament) => void;
+  selectPairingsEvent: (event: TabroomPairingsEvent) => void;
+  selectPairingsRound: (round: TabroomPairingsRound) => void;
   refreshPairings: () => void;
   refreshBallots: () => void;
   refreshMyRounds: () => void;
   refreshEntries: () => void;
-  
   refreshUpcoming: () => void;
   lookupJudge: (name?: string, id?: string) => void;
   htmlPreviews: Record<string, string | undefined>;
@@ -55,13 +61,15 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
   const [selectedTournament, setSelectedTournament] = useState<TabroomTournament | null>(null);
   const [pairings, setPairings] = useState<TabroomPairing[]>([]);
   const [pairingsHeaders, setPairingsHeaders] = useState<string[]>([]);
+  const [pairingsEvents, setPairingsEvents] = useState<TabroomPairingsEvent[]>([]);
+  const [selectedPairingsEvent, setSelectedPairingsEvent] = useState<TabroomPairingsEvent | null>(null);
+  const [selectedPairingsRound, setSelectedPairingsRound] = useState<TabroomPairingsRound | null>(null);
   const [coinFlip, setCoinFlip] = useState<TabroomCoinFlip | null>(null);
   const [ballots, setBallots] = useState<(TabroomRound & { tournament_name?: string })[]>([]);
   const [myRounds, setMyRounds] = useState<(TabroomRound & { tournament_name?: string })[]>([]);
   const [myRecord, setMyRecord] = useState({ wins: 0, losses: 0 });
   const [judgeInfo, setJudgeInfo] = useState<TabroomJudgeInfo | null>(null);
   const [entries, setEntries] = useState<TabroomTournament[]>([]);
-  
   const [upcomingTournaments, setUpcomingTournaments] = useState<TabroomTournament[]>([]);
   const [htmlPreviews, setHtmlPreviews] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -94,22 +102,71 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     return () => { cancelled = true; };
   }, [user.token]);
 
-  const selectTournament = useCallback((t: TabroomTournament) => setSelectedTournament(t), []);
+  const selectTournament = useCallback((t: TabroomTournament) => {
+    setSelectedTournament(t);
+    // Reset event/round selection when tournament changes
+    setSelectedPairingsEvent(null);
+    setSelectedPairingsRound(null);
+    setPairingsEvents([]);
+    setPairings([]);
+  }, []);
 
-  // Pairings
+  // Pairings events — load all events + rounds for the selected tournament
+  const refreshPairingsEvents = useCallback(async () => {
+    if (!selectedTournament) return;
+    setLoad("pairingsEvents", true); setErr("pairingsEvents", null);
+    try {
+      const res = await tabroomGetPairingsEvents(user.token, selectedTournament.id);
+      const events = res.events || [];
+      setPairingsEvents(events);
+      // Auto-select first event and first round
+      if (events.length > 0) {
+        const firstEvent = events[0];
+        setSelectedPairingsEvent(firstEvent);
+        if (firstEvent.rounds.length > 0) {
+          setSelectedPairingsRound(firstEvent.rounds[0]);
+        }
+      }
+    } catch (err: any) { setErr("pairingsEvents", err.message); }
+    finally { setLoad("pairingsEvents", false); }
+  }, [user.token, selectedTournament]);
+
+  useEffect(() => { if (selectedTournament) refreshPairingsEvents(); }, [selectedTournament, refreshPairingsEvents]);
+
+  // Pairings — fetch for the selected event + round
   const refreshPairings = useCallback(async () => {
     if (!selectedTournament) return;
     setLoad("pairings", true); setErr("pairings", null);
     try {
-      const res = await tabroomGetPairings(user.token, selectedTournament.id);
+      const eventId = selectedPairingsEvent?.id !== "default" ? selectedPairingsEvent?.id : undefined;
+      const roundId = selectedPairingsRound?.id;
+      const res = await tabroomGetPairings(user.token, selectedTournament.id, eventId, roundId);
       setPairings(res.pairings || []);
       setPairingsHeaders(res.headers || []);
       setCoinFlip(res.coin_flip || null);
     } catch (err: any) { setErr("pairings", err.message); }
     finally { setLoad("pairings", false); }
-  }, [user.token, selectedTournament]);
+  }, [user.token, selectedTournament, selectedPairingsEvent, selectedPairingsRound]);
 
-  useEffect(() => { if (selectedTournament) refreshPairings(); }, [selectedTournament, refreshPairings]);
+  // Re-fetch pairings whenever the selected round changes
+  useEffect(() => {
+    if (selectedPairingsRound) refreshPairings();
+  }, [selectedPairingsRound, refreshPairings]);
+
+  const selectPairingsEvent = useCallback((event: TabroomPairingsEvent) => {
+    setSelectedPairingsEvent(event);
+    // Auto-select first round of the selected event
+    if (event.rounds.length > 0) {
+      setSelectedPairingsRound(event.rounds[0]);
+    } else {
+      setSelectedPairingsRound(null);
+      setPairings([]);
+    }
+  }, []);
+
+  const selectPairingsRound = useCallback((round: TabroomPairingsRound) => {
+    setSelectedPairingsRound(round);
+  }, []);
 
   // My Rounds
   const refreshMyRounds = useCallback(async () => {
@@ -126,7 +183,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
 
   useEffect(() => { if (selectedTournament) refreshMyRounds(); }, [selectedTournament, refreshMyRounds]);
 
-  // Ballots — fetch only for selected tournament to avoid rate limiting
+  // Ballots
   const refreshBallots = useCallback(async () => {
     if (!selectedTournament) return;
     setLoad("ballots", true); setErr("ballots", null);
@@ -155,7 +212,6 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
   }, [user.token]);
 
   useEffect(() => { refreshEntries(); }, [refreshEntries]);
-
 
   // Upcoming
   const refreshUpcoming = useCallback(async () => {
@@ -188,10 +244,13 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
 
   return (
     <TabroomContext.Provider value={{
-      user, tournaments, selectedTournament, pairings, pairingsHeaders, coinFlip,
-      ballots, myRounds, myRecord, judgeInfo, entries,
+      user, tournaments, selectedTournament,
+      pairings, pairingsHeaders, pairingsEvents,
+      selectedPairingsEvent, selectedPairingsRound,
+      coinFlip, ballots, myRounds, myRecord, judgeInfo, entries,
       upcomingTournaments, loading, errors,
-      selectTournament, refreshPairings, refreshBallots,
+      selectTournament, selectPairingsEvent, selectPairingsRound,
+      refreshPairings, refreshBallots,
       refreshMyRounds, refreshEntries,
       refreshUpcoming, lookupJudge, htmlPreviews,
     }}>

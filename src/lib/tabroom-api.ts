@@ -68,6 +68,17 @@ export interface TabroomRound {
   room: string;
 }
 
+export interface TabroomPairingsRound {
+  id: string;
+  name: string;
+}
+
+export interface TabroomPairingsEvent {
+  id: string;
+  name: string;
+  rounds: TabroomPairingsRound[];
+}
+
 export interface TabroomPastResult {
   tournament: string;
   event: string;
@@ -96,6 +107,10 @@ export async function tabroomGetMyTournaments(token: string): Promise<{ tourname
 
 export async function tabroomGetPairings(token: string, tournId: string, eventId?: string, roundId?: string): Promise<{ pairings: TabroomPairing[]; headers?: string[]; total: number; coin_flip?: TabroomCoinFlip }> {
   return callTabroom("pairings", { token, tourn_id: tournId, event_id: eventId, round_id: roundId });
+}
+
+export async function tabroomGetPairingsEvents(token: string, tournId: string): Promise<{ events: TabroomPairingsEvent[]; total: number }> {
+  return callTabroom("pairings-events", { token, tourn_id: tournId });
 }
 
 export async function tabroomGetJudge(judgeId?: string, judgeName?: string, token?: string): Promise<TabroomJudgeInfo> {

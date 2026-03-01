@@ -1,27 +1,31 @@
 import { useTabroom } from "@/contexts/TabroomContext";
+import type { TabroomPairingsEvent, TabroomPairingsRound } from "@/lib/tabroom-api";
 
 export function PairingsTab() {
-  const { pairings, pairingsHeaders, loading, errors, selectedTournament, refreshPairings, htmlPreviews } = useTabroom();
+  const {
+    pairings, pairingsHeaders, pairingsEvents,
+    selectedPairingsEvent, selectedPairingsRound,
+    loading, errors, selectedTournament,
+    refreshPairings, selectPairingsEvent, selectPairingsRound,
+    htmlPreviews,
+  } = useTabroom();
 
-  // Use headers from API or fallback to default
-  const headers = pairingsHeaders && pairingsHeaders.length > 0 
-    ? pairingsHeaders 
+  const headers = pairingsHeaders && pairingsHeaders.length > 0
+    ? pairingsHeaders
     : ["room", "aff", "neg", "judge"];
 
-  // Format header for display
-  const formatHeader = (header: string) => {
-    return header
-      .split("_")
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(" ");
-  };
+  const formatHeader = (header: string) =>
+    header.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+
+  const isLoadingEvents = loading.pairingsEvents;
+  const isLoadingPairings = loading.pairings;
 
   return (
     <div className="animate-fadein">
       <h2 className="font-serif text-[26px] font-extralight tracking-[-1px] italic mb-0.5">
         All Pairings
       </h2>
-      <p className="text-muted-foreground text-[11.5px] mb-5">
+      <p className="text-muted-foreground text-[11.5px] mb-4">
         {selectedTournament?.name || "No tournament selected"}
       </p>
 
@@ -31,32 +35,102 @@ export function PairingsTab() {
         </div>
       )}
 
-      {loading.pairings && (
-        <div className="flex items-center gap-2 text-muted-foreground text-xs py-8 justify-center">
-          <div className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-          Loading pairings…
-        </div>
-      )}
-
-      {errors.pairings && (
-        <div className="rounded-lg px-3 py-2.5 text-xs mb-3.5"
-          style={{ background: "rgba(196,81,42,.2)", border: "1px solid rgba(196,81,42,.4)", color: "#fca" }}>
-          {errors.pairings}
-        </div>
-      )}
-
-      {!loading.pairings && selectedTournament && (
+      {selectedTournament && (
         <>
+          {/* ── Schematics ─────────────────────────── */}
+          <div className="mb-4">
+            <p className="flow-label text-[10px] uppercase tracking-widest mb-2">Schematics</p>
+
+            {isLoadingEvents && (
+              <div className="flex items-center gap-2 text-muted-foreground text-xs py-2">
+                <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                Loading events…
+              </div>
+            )}
+
+            {errors.pairingsEvents && (
+              <div className="rounded-md px-2.5 py-2 text-xs mb-2"
+                style={{ background: "rgba(196,81,42,.2)", border: "1px solid rgba(196,81,42,.4)", color: "#fca" }}>
+                {errors.pairingsEvents}
+              </div>
+            )}
+
+            {/* Event selector */}
+            {!isLoadingEvents && pairingsEvents.length > 0 && (
+              <div className="mb-2.5">
+                <div className="flex flex-wrap gap-1.5">
+                  {pairingsEvents.map((event: TabroomPairingsEvent) => (
+                    <button
+                      key={event.id}
+                      onClick={() => selectPairingsEvent(event)}
+                      className={[
+                        "px-2.5 py-1 rounded-md font-mono text-[11px] cursor-pointer border transition-all",
+                        selectedPairingsEvent?.id === event.id
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-transparent text-muted-foreground border-border hover:border-primary/50 hover:text-foreground",
+                      ].join(" ")}
+                    >
+                      {event.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Round selector */}
+            {selectedPairingsEvent && selectedPairingsEvent.rounds.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {selectedPairingsEvent.rounds.map((round: TabroomPairingsRound) => (
+                  <button
+                    key={round.id}
+                    onClick={() => selectPairingsRound(round)}
+                    className={[
+                      "px-2.5 py-1 rounded-md font-mono text-[10.5px] cursor-pointer border transition-all",
+                      selectedPairingsRound?.id === round.id
+                        ? "bg-primary/90 text-primary-foreground border-primary/80"
+                        : "bg-transparent text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
+                    ].join(" ")}
+                  >
+                    {round.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {!isLoadingEvents && pairingsEvents.length === 0 && (
+              <p className="text-muted-foreground text-xs">No events found for this tournament.</p>
+            )}
+          </div>
+
+          {/* ── Controls ───────────────────────────── */}
           <div className="flex gap-2 mb-3.5">
             <button
               onClick={refreshPairings}
-              className="px-3 py-1.5 rounded-md font-mono text-[11px] cursor-pointer bg-primary text-primary-foreground border-none hover:brightness-90 transition-all"
+              disabled={isLoadingPairings}
+              className="px-3 py-1.5 rounded-md font-mono text-[11px] cursor-pointer bg-primary text-primary-foreground border-none hover:brightness-90 transition-all disabled:opacity-50"
             >
               ↻ Refresh
             </button>
           </div>
 
-          {pairings.length > 0 ? (
+          {/* ── Errors ─────────────────────────────── */}
+          {errors.pairings && (
+            <div className="rounded-lg px-3 py-2.5 text-xs mb-3.5"
+              style={{ background: "rgba(196,81,42,.2)", border: "1px solid rgba(196,81,42,.4)", color: "#fca" }}>
+              {errors.pairings}
+            </div>
+          )}
+
+          {/* ── Loading pairings ───────────────────── */}
+          {isLoadingPairings && (
+            <div className="flex items-center gap-2 text-muted-foreground text-xs py-8 justify-center">
+              <div className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              Loading pairings…
+            </div>
+          )}
+
+          {/* ── Pairings table ─────────────────────── */}
+          {!isLoadingPairings && pairings.length > 0 && (
             <div className="flow-card p-0 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-[11.5px]">
@@ -89,11 +163,19 @@ export function PairingsTab() {
                 </table>
               </div>
             </div>
-          ) : (
+          )}
+
+          {!isLoadingPairings && pairings.length === 0 && selectedPairingsRound && (
             <div className="text-center py-6 text-muted-foreground text-xs">
               {htmlPreviews.pairings
                 ? "Pairings page loaded but no structured pairings were parsed. The raw HTML is available below."
-                : "No pairings found for this tournament."}
+                : "No pairings found for this round."}
+            </div>
+          )}
+
+          {!isLoadingPairings && pairings.length === 0 && !selectedPairingsRound && (
+            <div className="text-center py-6 text-muted-foreground text-xs">
+              Select an event and round above to view pairings.
             </div>
           )}
 
@@ -111,7 +193,7 @@ export function PairingsTab() {
         </>
       )}
 
-      <div className="text-[11px] text-muted-foreground mt-1.5">
+      <div className="text-[11px] text-muted-foreground mt-3">
         Data scraped from Tabroom. Tap judge name for paradigm.
       </div>
     </div>

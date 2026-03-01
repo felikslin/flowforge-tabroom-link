@@ -188,14 +188,84 @@ async function handleMyTournaments(body: { token: string }) {
   }
 }
 
+// ─── PAIRINGS EVENTS (discover all events + rounds) ──────
+async function handlePairingsEvents(body: { token: string; tourn_id: string }) {
+  if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
+  try {
+    const indexPath = `/index/tourn/postings/index.mhtml?tourn_id=${body.tourn_id}`;
+    const res = await tabroomFetch(indexPath, body.token);
+    const html = await res.text();
+    if (isLoginPage(html)) return err("Session expired - please log in again", 401);
+
+    // Collect event IDs + names from links on the postings index page
+    const eventMap = new Map<string, { id: string; name: string; rounds: Array<{ id: string; name: string }> }>();
+    const eventLinkRegex = /href="[^"]*[?&]event_id=(\d+)[^"]*"[^>]*>\s*([^<]{2,80}?)\s*<\/a>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = eventLinkRegex.exec(html)) !== null) {
+      const id = m[1];
+      const name = m[2].replace(/&amp;/g, "&").replace(/&#\d+;/g, "").replace(/\s+/g, " ").trim();
+      if (id && name && !eventMap.has(id)) {
+        eventMap.set(id, { id, name, rounds: [] });
+      }
+    }
+
+    // For every event found, fetch its page to collect rounds
+    const events: Array<{ id: string; name: string; rounds: Array<{ id: string; name: string }> }> = [];
+    if (eventMap.size > 0) {
+      for (const [eventId, event] of eventMap.entries()) {
+        try {
+          const eventPath = `/index/tourn/postings/index.mhtml?tourn_id=${body.tourn_id}&event_id=${eventId}`;
+          const eRes = await tabroomFetch(eventPath, body.token);
+          const eHtml = await eRes.text();
+          const roundRegex = /href="[^"]*round\.mhtml[^"]*round_id=(\d+)[^"]*"[^>]*>\s*([^<]{1,60}?)\s*<\/a>/gi;
+          let rm: RegExpExecArray | null;
+          while ((rm = roundRegex.exec(eHtml)) !== null) {
+            const rid = rm[1];
+            const rname = rm[2].replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+            if (rid && !event.rounds.find(r => r.id === rid)) {
+              event.rounds.push({ id: rid, name: rname || `Round ${event.rounds.length + 1}` });
+            }
+          }
+        } catch { /* keep event even if rounds fail */ }
+        events.push(event);
+      }
+    }
+
+    // If no event links found, scrape round links directly from the index page
+    if (events.length === 0) {
+      const directRoundRegex = /href="[^"]*round\.mhtml[^"]*round_id=(\d+)[^"]*"[^>]*>\s*([^<]{1,60}?)\s*<\/a>/gi;
+      const directRounds: Array<{ id: string; name: string }> = [];
+      while ((m = directRoundRegex.exec(html)) !== null) {
+        const rid = m[1];
+        const rname = m[2].replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+        if (rid && !directRounds.find(r => r.id === rid)) {
+          directRounds.push({ id: rid, name: rname || `Round ${directRounds.length + 1}` });
+        }
+      }
+      if (directRounds.length > 0) {
+        events.push({ id: "default", name: "All Rounds", rounds: directRounds });
+      }
+    }
+
+    return json({ events, total: events.length });
+  } catch (e) {
+    return err(`Failed to fetch pairings events: ${(e as Error).message}`, 502);
+  }
+}
+
 // ─── PAIRINGS ────────────────────────────────────────────
 async function handlePairings(body: { token: string; tourn_id: string; event_id?: string; round_id?: string }) {
   if (!body.token || !body.tourn_id) return err("Token and tourn_id are required");
 
   try {
-    let path = `/index/tourn/postings/index.mhtml?tourn_id=${body.tourn_id}`;
-    if (body.event_id) path += `&event_id=${body.event_id}`;
-    if (body.round_id) path += `&round_id=${body.round_id}`;
+    // Use the round-specific URL when a round_id is supplied — this gives per-round pairings
+    let path: string;
+    if (body.round_id) {
+      path = `/index/tourn/postings/round.mhtml?tourn_id=${body.tourn_id}&round_id=${body.round_id}`;
+    } else {
+      path = `/index/tourn/postings/index.mhtml?tourn_id=${body.tourn_id}`;
+      if (body.event_id) path += `&event_id=${body.event_id}`;
+    }
 
     const res = await tabroomFetch(path, body.token);
     const html = await res.text();
@@ -1251,6 +1321,7 @@ serve(async (req) => {
   switch (path) {
     case "login": return handleLogin(body as any);
     case "my-tournaments": return handleMyTournaments(body as any);
+    case "pairings-events": return handlePairingsEvents(body as any);
     case "pairings": return handlePairings(body as any);
     case "judge": return handleJudge(body as any);
     case "ballots": return handleBallots(body as any);
