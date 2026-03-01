@@ -37,8 +37,8 @@ interface TabroomState {
   loading: Record<string, boolean>;
   errors: Record<string, string | null>;
   selectTournament: (t: TabroomTournament) => void;
-  selectPairingsEvent: (event: TabroomPairingsEvent) => void;
-  selectPairingsRound: (round: TabroomPairingsRound) => void;
+  selectPairingsEvent: (event: TabroomPairingsEvent | null) => void;
+  selectPairingsRound: (round: TabroomPairingsRound | null) => void;
   refreshPairings: () => void;
   refreshBallots: () => void;
   refreshMyRounds: () => void;
@@ -153,10 +153,10 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     if (selectedPairingsRound) refreshPairings();
   }, [selectedPairingsRound, refreshPairings]);
 
-  const selectPairingsEvent = useCallback((event: TabroomPairingsEvent) => {
+  const selectPairingsEvent = useCallback((event: TabroomPairingsEvent | null) => {
     setSelectedPairingsEvent(event);
     // Auto-select first round of the selected event
-    if (event.rounds.length > 0) {
+    if (event && event.rounds.length > 0) {
       setSelectedPairingsRound(event.rounds[0]);
     } else {
       setSelectedPairingsRound(null);
@@ -164,7 +164,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
     }
   }, []);
 
-  const selectPairingsRound = useCallback((round: TabroomPairingsRound) => {
+  const selectPairingsRound = useCallback((round: TabroomPairingsRound | null) => {
     setSelectedPairingsRound(round);
   }, []);
 

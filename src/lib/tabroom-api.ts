@@ -1,12 +1,25 @@
-import { supabase } from "@/integrations/supabase/client";
-
-const FUNCTION_NAME = "tabroom-proxy";
+// Cloudflare Workers API base URL
+// For local development: http://localhost:8787
+// For production: https://your-worker.workers.dev
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787';
 
 async function callTabroom<T = unknown>(action: string, body: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke(`${FUNCTION_NAME}/${action}`, { body });
-  if (error) throw new Error(error.message || "Tabroom proxy request failed");
+  const response = await fetch(`${API_BASE_URL}/api/tabroom/${action}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || 'Tabroom proxy request failed');
+  }
+
+  const data = await response.json();
+  
   // Only throw on error if the response has no useful data alongside it
-  // (some responses like judge search return partial data + an error message)
   if (data?.error && !data?.name && !data?.results && !data?.rounds && !data?.tournaments) {
     throw new Error(data.error);
   }

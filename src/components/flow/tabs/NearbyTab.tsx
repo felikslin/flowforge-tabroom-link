@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useGeolocation } from "@/hooks/use-geolocation";
-import { supabase } from "@/integrations/supabase/client";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787';
 
 interface NearbyPlace {
   name: string;
@@ -34,10 +35,13 @@ export function NearbyTab() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("nearby-places", {
-        body: { lat, lng, filter: f },
+      const response = await fetch(`${API_BASE_URL}/api/nearby-places`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng, filter: f }),
       });
-      if (fnError) throw fnError;
+      if (!response.ok) throw new Error('Failed to fetch nearby places');
+      const data = await response.json();
       setPlaces(data?.places || []);
     } catch (e: any) {
       setError(e.message || "Failed to fetch nearby places");

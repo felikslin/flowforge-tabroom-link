@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
-import { supabase } from "@/integrations/supabase/client";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787';
 
 interface Message {
   role: "assistant" | "user";
@@ -47,11 +48,14 @@ export function ChatTab() {
         { role: "user" as const, content: text },
       ];
 
-      const { data, error } = await supabase.functions.invoke("flow-chat", {
-        body: { messages: chatMessages, context },
+      const response = await fetch(`${API_BASE_URL}/api/flow-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: chatMessages, context }),
       });
 
-      if (error) throw error;
+      if (!response.ok) throw new Error('Failed to get AI response');
+      const data = await response.json();
 
       setMessages((prev) => [
         ...prev,

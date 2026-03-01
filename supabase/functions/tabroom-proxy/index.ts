@@ -1,3 +1,4 @@
+// @ts-ignore - Deno runtime import
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
@@ -1307,7 +1308,7 @@ async function handleVenueMap(body: { token: string; tourn_id: string }) {
 }
 
 // ─── ROUTER ──────────────────────────────────────────────
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const url = new URL(req.url);
