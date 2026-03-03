@@ -160,4 +160,230 @@
   .animate-fadein {
     animation: fadein .2s ease;
   }
+
+  /* ═══════════════════════════════════════════════
+     Pairings – Apple-style component system  (pr-*)
+     ═══════════════════════════════════════════════ */
+
+  /* ── Entrance animation ─────────────────────── */
+  @keyframes pr-rise {
+    from { opacity: 0; transform: translateY(5px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .pr-animate-in {
+    animation: pr-rise .22s cubic-bezier(.4,0,.2,1) both;
+  }
+
+  /* ── Section label ──────────────────────────── */
+  .pr-section-label {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    @apply text-[11px] font-semibold tracking-[0.6px] uppercase
+           text-muted-foreground/50 mb-2.5 block select-none;
+  }
+
+  /* ── List row (event picker) ────────────────── */
+  .pr-list-row {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    @apply w-full flex items-center gap-3 px-4 py-[13px] rounded-[14px]
+           bg-card cursor-pointer text-left
+           transition-all duration-150 ease-out;
+    border: 0.5px solid hsl(var(--border) / .5);
+  }
+  .pr-list-row:hover {
+    background: hsl(var(--card) / .85);
+    border-color: hsl(var(--border) / .7);
+  }
+  .pr-list-row:active {
+    transform: scale(.98);
+    background: hsl(var(--muted) / .6);
+  }
+
+  /* ── Back button ────────────────────────────── */
+  .pr-back {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    @apply inline-flex items-center gap-[3px] text-[13px] font-normal
+           text-primary hover:text-primary/70 transition-colors
+           cursor-pointer bg-transparent border-none p-0;
+  }
+
+  /* ── Segmented control ──────────────────────── */
+  .pr-seg {
+    @apply flex gap-[2px] p-[3px] rounded-[11px]
+           w-fit max-w-full overflow-x-auto;
+    background: hsl(var(--muted) / .6);
+    border: 0.5px solid hsl(var(--border) / .3);
+  }
+  .pr-seg-item {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    @apply px-3 py-[6px] rounded-[9px] text-[12px] font-medium
+           text-muted-foreground bg-transparent border-none cursor-pointer
+           transition-all duration-200 whitespace-nowrap select-none;
+    letter-spacing: -0.1px;
+  }
+  .pr-seg-item:hover:not(.active) {
+    @apply text-foreground/75;
+  }
+  .pr-seg-item.active {
+    @apply bg-card text-foreground;
+    box-shadow: 0 1px 4px rgba(0,0,0,.10), 0 0.5px 1px rgba(0,0,0,.08);
+  }
+  .pr-seg-item:active {
+    transform: scale(.95);
+  }
+
+  /* ── Search input (iOS-style) ───────────────── */
+  .pr-search {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    @apply w-full pl-8 pr-3 py-[8px] rounded-[10px]
+           text-[13px] text-foreground placeholder:text-muted-foreground/40
+           outline-none transition-all duration-200;
+    background: hsl(var(--muted) / .55);
+    border: 0.5px solid transparent;
+    letter-spacing: -0.1px;
+  }
+  .pr-search:focus {
+    background: hsl(var(--card));
+    border-color: hsl(var(--primary) / .3);
+    box-shadow: 0 0 0 3px hsl(var(--primary) / .07);
+  }
+
+  /* ── Icon button ────────────────────────────── */
+  .pr-icon-btn {
+    @apply flex items-center justify-center w-[32px] h-[32px]
+           rounded-[9px] text-muted-foreground/60
+           cursor-pointer transition-all duration-150;
+    background: hsl(var(--muted) / .55);
+    border: 0.5px solid transparent;
+  }
+  .pr-icon-btn:hover {
+    @apply text-foreground;
+    background: hsl(var(--card));
+    border-color: hsl(var(--border) / .5);
+  }
+  .pr-icon-btn:active { transform: scale(.91); }
+  .pr-icon-btn:disabled { @apply opacity-25 cursor-not-allowed; }
+
+  /* ── Spinner ────────────────────────────────── */
+  .pr-spinner {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    @apply flex items-center justify-center gap-2.5
+           text-[12px] text-muted-foreground/50 py-14;
+    letter-spacing: -0.1px;
+  }
+  .pr-spinner-ring {
+    @apply w-[15px] h-[15px] rounded-full border-[1.5px]
+           border-muted-foreground/10 border-t-muted-foreground/50;
+    animation: spin .75s linear infinite;
+  }
+
+  /* ── Error ──────────────────────────────────── */
+  .pr-error {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    @apply rounded-[12px] px-4 py-3 text-[12.5px] text-destructive;
+    background: hsl(var(--destructive) / .07);
+    border: 0.5px solid hsl(var(--destructive) / .2);
+    letter-spacing: -0.1px;
+  }
+
+  /* ── Empty state ────────────────────────────── */
+  .pr-empty {
+    @apply flex flex-col items-center justify-center py-16 text-center;
+  }
+  .pr-empty-icon {
+    @apply w-9 h-9 rounded-full flex items-center justify-center mb-3;
+    background: hsl(var(--muted) / .5);
+  }
+
+  /* ── The card container (iOS grouped list) ─── */
+  .pr-card {
+    @apply bg-card rounded-[16px] overflow-hidden;
+    border: 0.5px solid hsl(var(--border) / .5);
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+
+  /* ── Grid row ───────────────────────────────── */
+  .pr-row {
+    display: grid;
+    grid-template-columns: 48px repeat(var(--pr-cols, 3), 1fr);
+    gap: 14px;
+    align-items: center;
+    padding: 0 18px;
+  }
+  .pr-row--header {
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+  .pr-row--data {
+    padding-top: 13px;
+    padding-bottom: 13px;
+    animation: pr-rise .28s cubic-bezier(.4,0,.2,1) both;
+    transition: background .12s ease;
+  }
+  .pr-row--data:hover {
+    background: hsl(var(--muted) / .25);
+  }
+  .pr-row--border {
+    /* inset iOS-style hairline separator */
+    border-bottom: 0.5px solid hsl(var(--border) / .4);
+  }
+
+  /* ── Column labels ──────────────────────────── */
+  .pr-col-label {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    @apply text-[9px] font-semibold uppercase tracking-[0.9px]
+           text-muted-foreground/40 select-none;
+  }
+
+  /* ── Room number ────────────────────────────── */
+  .pr-room {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1;
+    color: hsl(var(--primary));
+    letter-spacing: -0.3px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Name pills (Apple-style) ───────────────── */
+  .pr-chip {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    @apply inline-flex items-center h-[22px] px-[9px] rounded-full
+           text-[11.5px] font-normal leading-none
+           transition-colors duration-100 cursor-default select-none;
+    letter-spacing: -0.15px;
+  }
+
+  /* Aff — subtle blue tint */
+  .pr-chip--aff {
+    background: hsl(211 100% 50% / .09);
+    color: hsl(211 80% 42%);
+  }
+  .dark .pr-chip--aff {
+    background: hsl(211 100% 60% / .12);
+    color: hsl(211 100% 72%);
+  }
+  .pr-chip--aff:hover {
+    background: hsl(211 100% 50% / .14);
+  }
+
+  /* Neg — neutral */
+  .pr-chip--neg {
+    background: hsl(var(--muted) / .7);
+    color: hsl(var(--foreground) / .6);
+  }
+  .pr-chip--neg:hover {
+    background: hsl(var(--muted));
+    color: hsl(var(--foreground) / .8);
+  }
+
+  /* Judge — muted sage/secondary */
+  .pr-chip--judge {
+    background: hsl(var(--muted) / .55);
+    color: hsl(var(--foreground) / .55);
+  }
+  .pr-chip--judge:hover {
+    background: hsl(var(--muted) / .85);
+    color: hsl(var(--foreground) / .75);
+  }
 }

@@ -1,5 +1,21 @@
+import { useState, useMemo } from "react";
 import { useTabroom } from "@/contexts/TabroomContext";
 import type { TabroomPairingsEvent, TabroomPairingsRound } from "@/lib/tabroom-api";
+
+/* Detect column "type" for styling */
+const isRoomCol = (h: string) => /^(room|chamber)$/i.test(h);
+const isJudgeCol = (h: string) => /judge/i.test(h);
+const isAffCol = (h: string) => /^aff/i.test(h);
+
+/** Split a cell value into individual name tokens */
+const splitNames = (v: string) => {
+  if (!v) return [];
+  return v.includes(",")
+    ? v.split(",").map(s => s.trim()).filter(Boolean)
+    : v.includes(" & ")
+      ? v.split(" & ").map(s => s.trim()).filter(Boolean)
+      : [v];
+};
 
 export function PairingsTab() {
   const {
@@ -10,216 +26,280 @@ export function PairingsTab() {
     htmlPreviews,
   } = useTabroom();
 
-  const headers = pairingsHeaders && pairingsHeaders.length > 0
-    ? pairingsHeaders
-    : ["room", "aff", "neg", "judge"];
+  const [search, setSearch] = useState("");
 
-  const formatHeader = (header: string) =>
-    header.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  const headers = pairingsHeaders?.length ? pairingsHeaders : ["room", "aff", "neg", "judge"];
 
-  const isLoadingEvents = loading.pairingsEvents;
-  const isLoadingPairings = loading.pairings;
+  const formatHeader = (h: string) =>
+    h.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 
+  const filteredPairings = useMemo(() => {
+    if (!search.trim()) return pairings;
+    const q = search.toLowerCase();
+    return pairings.filter(row =>
+      headers.some(h => String(row[h] ?? "").toLowerCase().includes(q))
+    );
+  }, [pairings, search, headers]);
+
+  /* ────────────────────────────────────────── */
   return (
-    <div className="animate-fadein">
-      <h2 className="font-serif text-[26px] font-extralight tracking-[-1px] italic mb-0.5">
-        All Pairings
-      </h2>
-      <p className="text-muted-foreground text-[11.5px] mb-4">
-        {selectedTournament?.name || "No tournament selected"}
-      </p>
+    <div className="pr-animate-in">
+      {/* Title */}
+      <div className="mb-6">
+        <h2
+          className="text-[22px] font-semibold tracking-[-0.5px] text-foreground"
+          style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" }}
+        >
+          Pairings
+        </h2>
+        {selectedTournament && (
+          <p
+            className="text-muted-foreground/60 text-[12px] mt-0.5 tracking-[-0.1px]"
+            style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }}
+          >
+            {selectedTournament.name}
+          </p>
+        )}
+      </div>
 
+      {/* ── Empty state: no tournament ───────────── */}
       {!selectedTournament && (
-        <div className="text-center py-8 text-muted-foreground text-xs">
-          Select a tournament from the Entries tab first.
+        <div className="pr-empty">
+          <div className="pr-empty-icon">
+            <svg className="w-4 h-4 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <p
+            className="text-[13px] font-medium text-foreground/60"
+            style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif", letterSpacing: "-0.15px" }}
+          >No tournament selected</p>
+          <p
+            className="text-[11.5px] text-muted-foreground/50 mt-1"
+            style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }}
+          >Choose a tournament in Entries.</p>
         </div>
       )}
 
       {selectedTournament && (
         <>
-          {/* ── Step 1: Select Event ─────────────────────────── */}
+          {/* ── Event picker ────────────────────────── */}
           {!selectedPairingsEvent && (
-            <div className="mb-4">
-              <p className="flow-label text-[10px] uppercase tracking-widest mb-2">Select Event</p>
+            <section>
+              <p className="pr-section-label">Events</p>
 
-              {isLoadingEvents && (
-                <div className="flex items-center gap-2 text-muted-foreground text-xs py-2">
-                  <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                  Loading events…
-                </div>
-              )}
+              {loading.pairingsEvents && <div className="pr-spinner"><div className="pr-spinner-ring" /><span>Loading</span></div>}
 
               {errors.pairingsEvents && (
-                <div className="rounded-md px-2.5 py-2 text-xs mb-2"
-                  style={{ background: "rgba(196,81,42,.2)", border: "1px solid rgba(196,81,42,.4)", color: "#fca" }}>
-                  {errors.pairingsEvents}
-                </div>
+                <div className="pr-error">{errors.pairingsEvents}</div>
               )}
 
-              {!isLoadingEvents && pairingsEvents.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {pairingsEvents.map((event: TabroomPairingsEvent) => (
-                    <button
-                      key={event.id}
-                      onClick={() => selectPairingsEvent(event)}
-                      className="flow-card px-5 py-4 text-left hover:border-primary/50 hover:shadow-md transition-all group relative overflow-hidden"
-                    >
-                      <div className="relative z-10">
-                        <div className="text-[14px] font-semibold text-foreground group-hover:text-primary transition-colors mb-2">
-                          {event.name}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="text-[11px] text-muted-foreground">
-                            {event.rounds.length} {event.rounds.length === 1 ? 'round' : 'rounds'}
-                          </div>
-                          <span className="text-[10px] text-muted-foreground group-hover:text-primary transition-colors ml-auto">→</span>
-                        </div>
+              {!loading.pairingsEvents && pairingsEvents.length > 0 && (
+                <div className="flex flex-col gap-[5px]">
+                  {pairingsEvents.map((ev: TabroomPairingsEvent) => (
+                    <button key={ev.id} onClick={() => selectPairingsEvent(ev)} className="pr-list-row group">
+                      <div className="flex-1 min-w-0">
+                        <span
+                          className="text-[13.5px] font-medium text-foreground/90 truncate block"
+                          style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif", letterSpacing: "-0.2px" }}
+                        >
+                          {ev.name}
+                        </span>
+                        <span
+                          className="text-[11px] text-muted-foreground/45 mt-[2px] block"
+                          style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }}
+                        >
+                          {ev.rounds.length} round{ev.rounds.length !== 1 && "s"}
+                        </span>
                       </div>
-                      <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <svg className="w-[14px] h-[14px] text-muted-foreground/25 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                     </button>
                   ))}
                 </div>
               )}
 
-              {!isLoadingEvents && pairingsEvents.length === 0 && (
-                <p className="text-muted-foreground text-xs">No events found for this tournament.</p>
+              {!loading.pairingsEvents && !pairingsEvents.length && (
+                <div className="pr-empty"><p className="text-[12px] text-muted-foreground/50">No events found.</p></div>
               )}
-            </div>
+            </section>
           )}
 
-          {/* ── Step 2: Select Round (after event selected) ─────────────────────────── */}
+          {/* ── Round picker ────────────────────────── */}
           {selectedPairingsEvent && (
-            <div className="mb-4">
+            <section className="mb-5">
+              <button
+                onClick={() => { selectPairingsEvent(null); selectPairingsRound(null); setSearch(""); }}
+                className="pr-back"
+              >
+                <svg className="w-[13px] h-[13px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                Events
+              </button>
+
+              <h3
+                className="text-[15px] font-semibold text-foreground mt-4 mb-3 tracking-[-0.3px]"
+                style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" }}
+              >
+                {selectedPairingsEvent.name}
+              </h3>
+
+              {selectedPairingsEvent.rounds.length > 0 ? (
+                <div className="pr-seg">
+                  {selectedPairingsEvent.rounds.map((r: TabroomPairingsRound) => (
+                    <button
+                      key={r.id}
+                      onClick={() => { selectPairingsRound(r); setSearch(""); }}
+                      className={`pr-seg-item ${selectedPairingsRound?.id === r.id ? "active" : ""}`}
+                    >
+                      {r.name}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[12px] text-muted-foreground/50">No rounds available.</p>
+              )}
+            </section>
+          )}
+
+          {/* ── Error / loading ─────────────────────── */}
+          {errors.pairings && <div className="pr-error mb-4">{errors.pairings}</div>}
+
+          {loading.pairings && (
+            <div className="pr-spinner py-16"><div className="pr-spinner-ring" /><span>Loading pairings</span></div>
+          )}
+
+          {/* ── THE TABLE ───────────────────────────── */}
+          {!loading.pairings && pairings.length > 0 && (
+            <div className="pr-animate-in">
+              {/* Toolbar */}
               <div className="flex items-center gap-2 mb-3">
-                <button
-                  onClick={() => {
-                    selectPairingsEvent(null);
-                    selectPairingsRound(null);
-                  }}
-                  className="px-3 py-1.5 rounded-md font-mono text-[11px] cursor-pointer bg-primary text-primary-foreground border-none hover:brightness-90 transition-all"
-                >
-                  ← Back to Events
+                <div className="relative flex-1">
+                  <svg className="absolute left-[10px] top-1/2 -translate-y-1/2 w-[13px] h-[13px] text-muted-foreground/35" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                  <input
+                    type="text"
+                    placeholder="Search"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="pr-search"
+                  />
+                </div>
+                <button onClick={refreshPairings} disabled={loading.pairings} className="pr-icon-btn" title="Refresh">
+                  <svg className="w-[13px] h-[13px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                 </button>
               </div>
-              
-              <p className="flow-label text-[10px] uppercase tracking-widest mb-2">
-                {selectedPairingsEvent.name}
+
+              {/* Count */}
+              <p
+                className="text-[11px] text-muted-foreground/40 mb-[10px] tabular-nums"
+                style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }}
+              >
+                {filteredPairings.length === pairings.length
+                  ? `${pairings.length} pairing${pairings.length !== 1 ? "s" : ""}`
+                  : `${filteredPairings.length} of ${pairings.length}`}
               </p>
 
-              {selectedPairingsEvent.rounds.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
-                  {selectedPairingsEvent.rounds.map((round: TabroomPairingsRound) => (
-                    <button
-                      key={round.id}
-                      onClick={() => selectPairingsRound(round)}
-                      className={[
-                        "px-3.5 py-3 rounded-md text-[11.5px] font-medium cursor-pointer border transition-all text-center relative overflow-hidden group",
-                        selectedPairingsRound?.id === round.id
-                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                          : "bg-flow-card text-foreground border-border hover:border-primary/50 hover:text-primary hover:shadow-md",
-                      ].join(" ")}
-                    >
-                      <span className="relative z-10">{round.name}</span>
-                      {selectedPairingsRound?.id !== round.id && (
-                        <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* Column labels */}
+              <div className="pr-row pr-row--header" style={{ "--pr-cols": headers.length - 1 } as React.CSSProperties}>
+                {headers.map(h => (
+                  <span key={h} className="pr-col-label">{formatHeader(h)}</span>
+                ))}
+              </div>
 
-              {selectedPairingsEvent.rounds.length === 0 && (
-                <p className="text-muted-foreground text-xs">No rounds found for this event.</p>
-              )}
-            </div>
-          )}
+              {/* Data rows */}
+              <div className="pr-card">
+                {filteredPairings.map((row, i) => (
+                  <div
+                    key={i}
+                    className={`pr-row pr-row--data ${i < filteredPairings.length - 1 ? "pr-row--border" : ""}`}
+                    style={{
+                      "--pr-cols": headers.length - 1,
+                      animationDelay: `${Math.min(i * 25, 250)}ms`,
+                    } as React.CSSProperties}
+                  >
+                    {headers.map((header, j) => {
+                      const raw = String(row[header] ?? "");
 
-          {/* ── Controls ───────────────────────────── */}
-          {selectedPairingsRound && (
-            <div className="flex gap-2 mb-3.5">
-              <button
-                onClick={refreshPairings}
-                disabled={isLoadingPairings}
-                className="px-3 py-1.5 rounded-md font-mono text-[11px] cursor-pointer bg-primary text-primary-foreground border-none hover:brightness-90 transition-all disabled:opacity-50"
-              >
-                ↻ Refresh
-              </button>
-            </div>
-          )}
+                      /* Room — compact accent number */
+                      if (isRoomCol(header)) {
+                        return (
+                          <div key={j} className="flex items-center self-center">
+                            <span className="pr-room">{raw || "–"}</span>
+                          </div>
+                        );
+                      }
 
-          {/* ── Errors ─────────────────────────────── */}
-          {errors.pairings && (
-            <div className="rounded-lg px-3 py-2.5 text-xs mb-3.5"
-              style={{ background: "rgba(196,81,42,.2)", border: "1px solid rgba(196,81,42,.4)", color: "#fca" }}>
-              {errors.pairings}
-            </div>
-          )}
+                      /* Name pills */
+                      const names = splitNames(raw);
+                      const chipType = isJudgeCol(header)
+                        ? "pr-chip--judge"
+                        : isAffCol(header)
+                          ? "pr-chip--aff"
+                          : "pr-chip--neg";
 
-          {/* ── Loading pairings ───────────────────── */}
-          {isLoadingPairings && (
-            <div className="flex items-center gap-2 text-muted-foreground text-xs py-8 justify-center">
-              <div className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-              Loading pairings…
-            </div>
-          )}
+                      return (
+                        <div key={j} className="flex flex-wrap gap-[5px] items-center min-h-[22px]">
+                          {names.length > 0 ? names.map((name, k) => (
+                            <span key={k} className={`pr-chip ${chipType}`}>{name}</span>
+                          )) : (
+                            <span className="text-[11px] text-muted-foreground/25">—</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
 
-          {/* ── Pairings table ─────────────────────── */}
-          {!isLoadingPairings && pairings.length > 0 && (
-            <div className="flow-card p-0 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-[11.5px]">
-                  <thead>
-                    <tr>
-                      {headers.map((h) => (
-                        <th key={h} className="text-left px-2.5 py-2 flow-label border-b border-border whitespace-nowrap">
-                          {formatHeader(h)}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pairings.map((row, i) => (
-                      <tr key={i} className="hover:bg-flow-surface2 transition-colors">
-                        {headers.map((header, j) => (
-                          <td key={j} className="px-2.5 py-2.5 border-b border-border">
-                            {header === "judge" || header.includes("judge") ? (
-                              <span className="text-primary underline cursor-pointer">
-                                {String(row[header] ?? "-")}
-                              </span>
-                            ) : (
-                              <span>{String(row[header] ?? "-")}</span>
-                            )}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {filteredPairings.length === 0 && (
+                  <div className="pr-empty py-10">
+                    <p
+                      className="text-[12px] text-muted-foreground/50"
+                      style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }}
+                    >No results for &ldquo;{search}&rdquo;</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {!isLoadingPairings && pairings.length === 0 && selectedPairingsRound && (
-            <div className="text-center py-6 text-muted-foreground text-xs">
-              {htmlPreviews.pairings
-                ? "Pairings page loaded but no structured pairings were parsed. The raw HTML is available below."
-                : "No pairings found for this round."}
+          {/* ── Empty states ────────────────────────── */}
+          {!loading.pairings && !pairings.length && selectedPairingsRound && (
+            <div className="pr-empty">
+              <div className="pr-empty-icon">
+                <svg className="w-4 h-4 text-muted-foreground/35" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
+              </div>
+              <p
+                className="text-[13px] font-medium text-foreground/55"
+                style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif", letterSpacing: "-0.15px" }}
+              >No pairings yet</p>
+              <p
+                className="text-[11.5px] text-muted-foreground/40 mt-1"
+                style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }}
+              >
+                {htmlPreviews.pairings
+                  ? "Couldn't parse pairings. See raw HTML below."
+                  : "Not posted for this round yet."}
+              </p>
             </div>
           )}
 
-          {!isLoadingPairings && pairings.length === 0 && !selectedPairingsRound && selectedPairingsEvent && (
-            <div className="text-center py-6 text-muted-foreground text-xs">
-              Select a round above to view pairings.
+          {!loading.pairings && !pairings.length && !selectedPairingsRound && selectedPairingsEvent && (
+            <div className="pr-empty">
+              <p
+                className="text-[12px] text-muted-foreground/45"
+                style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }}
+              >Select a round above.</p>
             </div>
           )}
 
-          {pairings.length === 0 && htmlPreviews.pairings && (
-            <details className="mt-3">
-              <summary className="text-[11px] text-muted-foreground cursor-pointer hover:text-foreground">
-                Show raw HTML preview
+          {!pairings.length && htmlPreviews.pairings && (
+            <details className="mt-4">
+              <summary
+                className="text-[11px] text-muted-foreground/40 cursor-pointer hover:text-muted-foreground/70 transition-colors select-none"
+                style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }}
+              >
+                Raw HTML
               </summary>
               <div
-                className="mt-2 bg-flow-surface2 rounded-lg p-3 text-[11px] leading-[1.6] max-h-[300px] overflow-y-auto"
+                className="mt-2 bg-muted/30 rounded-[12px] p-4 text-[11px] leading-[1.7] max-h-[280px] overflow-y-auto"
                 dangerouslySetInnerHTML={{ __html: htmlPreviews.pairings }}
               />
             </details>
@@ -227,9 +307,12 @@ export function PairingsTab() {
         </>
       )}
 
-      <div className="text-[11px] text-muted-foreground mt-3">
-        Data scraped from Tabroom. Tap judge name for paradigm.
-      </div>
+      <p
+        className="text-[10px] text-muted-foreground/30 mt-7"
+        style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }}
+      >
+        Data from Tabroom.com
+      </p>
     </div>
   );
 }
