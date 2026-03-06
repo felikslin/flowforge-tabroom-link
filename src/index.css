@@ -162,228 +162,333 @@
   }
 
   /* ═══════════════════════════════════════════════
-     Pairings – Apple-style component system  (pr-*)
+     Pairings – Flow Design System  (pr-*)
      ═══════════════════════════════════════════════ */
 
   /* ── Entrance animation ─────────────────────── */
   @keyframes pr-rise {
-    from { opacity: 0; transform: translateY(5px); }
+    from { opacity: 0; transform: translateY(8px); }
     to   { opacity: 1; transform: translateY(0); }
   }
   .pr-animate-in {
-    animation: pr-rise .22s cubic-bezier(.4,0,.2,1) both;
+    animation: pr-rise .26s cubic-bezier(.22,1,.36,1) both;
   }
 
   /* ── Section label ──────────────────────────── */
   .pr-section-label {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-    @apply text-[11px] font-semibold tracking-[0.6px] uppercase
-           text-muted-foreground/50 mb-2.5 block select-none;
+    font-family: 'DM Mono', monospace;
+    @apply text-[9.5px] font-medium tracking-[1.2px] uppercase
+           text-muted-foreground/55 mb-3 block select-none;
   }
 
-  /* ── List row (event picker) ────────────────── */
-  .pr-list-row {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-    @apply w-full flex items-center gap-3 px-4 py-[13px] rounded-[14px]
-           bg-card cursor-pointer text-left
-           transition-all duration-150 ease-out;
-    border: 0.5px solid hsl(var(--border) / .5);
+  /* ── Event grouped list ─────────────────────── */
+  .pr-events-card {
+    @apply bg-card rounded-[16px] overflow-hidden;
+    border: 1px solid hsl(var(--border));
+    box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 6px 20px rgba(0,0,0,.05);
   }
-  .pr-list-row:hover {
-    background: hsl(var(--card) / .85);
-    border-color: hsl(var(--border) / .7);
+  .pr-event-row {
+    font-family: 'DM Mono', monospace;
+    @apply w-full flex items-center gap-3 px-4 py-[14px]
+           cursor-pointer text-left transition-colors duration-150;
+    background: transparent;
+    border: none;
+    outline: none;
   }
-  .pr-list-row:active {
-    transform: scale(.98);
-    background: hsl(var(--muted) / .6);
+  .pr-event-row:hover { background: hsl(var(--flow-accent-light) / .55); }
+  .pr-event-row:active { background: hsl(var(--flow-accent-light)); }
+
+  .pr-event-divider {
+    margin: 0 16px;
+    height: 1px;
+    background: hsl(var(--border));
+  }
+
+  /* event icon badge */
+  .pr-event-icon {
+    font-family: 'Fraunces', serif;
+    @apply flex-shrink-0 w-[38px] h-[38px] rounded-[10px] flex items-center
+           justify-center text-[16px] font-semibold text-white select-none;
+  }
+
+  /* round count capsule */
+  .pr-event-badge {
+    font-family: 'DM Mono', monospace;
+    @apply inline-flex items-center h-[19px] px-[7px] rounded-[5px]
+           text-[10px] font-medium flex-shrink-0 select-none tracking-[0.2px];
+    background: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border));
   }
 
   /* ── Back button ────────────────────────────── */
   .pr-back {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-    @apply inline-flex items-center gap-[3px] text-[13px] font-normal
-           text-primary hover:text-primary/70 transition-colors
-           cursor-pointer bg-transparent border-none p-0;
+    font-family: 'DM Mono', monospace;
+    @apply inline-flex items-center gap-[4px] text-[12px] font-medium
+           text-primary hover:text-primary/65 active:text-primary/40
+           transition-colors cursor-pointer bg-transparent border-none p-0
+           tracking-[-0.1px];
   }
 
-  /* ── Segmented control ──────────────────────── */
-  .pr-seg {
-    @apply flex gap-[2px] p-[3px] rounded-[11px]
-           w-fit max-w-full overflow-x-auto;
-    background: hsl(var(--muted) / .6);
-    border: 0.5px solid hsl(var(--border) / .3);
+  /* ── Round pill row ─────────────────────────── */
+  .pr-rounds {
+    @apply flex gap-[5px] overflow-x-auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-bottom: 2px;
   }
-  .pr-seg-item {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-    @apply px-3 py-[6px] rounded-[9px] text-[12px] font-medium
-           text-muted-foreground bg-transparent border-none cursor-pointer
-           transition-all duration-200 whitespace-nowrap select-none;
-    letter-spacing: -0.1px;
-  }
-  .pr-seg-item:hover:not(.active) {
-    @apply text-foreground/75;
-  }
-  .pr-seg-item.active {
-    @apply bg-card text-foreground;
-    box-shadow: 0 1px 4px rgba(0,0,0,.10), 0 0.5px 1px rgba(0,0,0,.08);
-  }
-  .pr-seg-item:active {
-    transform: scale(.95);
-  }
+  .pr-rounds::-webkit-scrollbar { display: none; }
 
-  /* ── Search input (iOS-style) ───────────────── */
+  .pr-round-pill {
+    font-family: 'DM Mono', monospace;
+    @apply flex-shrink-0 h-[28px] px-[12px] rounded-[7px]
+           text-[11px] font-medium cursor-pointer border-none
+           whitespace-nowrap select-none transition-all duration-200 tracking-[-0.1px];
+    background: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border));
+  }
+  .pr-round-pill:hover:not(.active) {
+    background: hsl(var(--flow-accent-light) / .6);
+    color: hsl(var(--primary));
+    border-color: hsl(var(--primary) / .2);
+  }
+  .pr-round-pill.active {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border-color: transparent;
+    box-shadow: 0 1px 6px hsl(var(--primary) / .3);
+  }
+  .pr-round-pill:active { transform: scale(.94); }
+
+  /* ── Search input ───────────────────────────── */
   .pr-search {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-    @apply w-full pl-8 pr-3 py-[8px] rounded-[10px]
-           text-[13px] text-foreground placeholder:text-muted-foreground/40
-           outline-none transition-all duration-200;
-    background: hsl(var(--muted) / .55);
-    border: 0.5px solid transparent;
-    letter-spacing: -0.1px;
+    font-family: 'DM Mono', monospace;
+    @apply w-full pl-[30px] pr-3 py-[7.5px] rounded-[9px]
+           text-[12px] text-foreground placeholder:text-muted-foreground/40
+           outline-none transition-all duration-200 tracking-[-0.1px];
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
   }
   .pr-search:focus {
     background: hsl(var(--card));
-    border-color: hsl(var(--primary) / .3);
-    box-shadow: 0 0 0 3px hsl(var(--primary) / .07);
+    border-color: hsl(var(--primary) / .4);
+    box-shadow: 0 0 0 3px hsl(var(--primary) / .08);
   }
 
   /* ── Icon button ────────────────────────────── */
   .pr-icon-btn {
-    @apply flex items-center justify-center w-[32px] h-[32px]
+    @apply flex items-center justify-center w-[33px] h-[33px]
            rounded-[9px] text-muted-foreground/60
            cursor-pointer transition-all duration-150;
-    background: hsl(var(--muted) / .55);
-    border: 0.5px solid transparent;
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
   }
   .pr-icon-btn:hover {
-    @apply text-foreground;
-    background: hsl(var(--card));
-    border-color: hsl(var(--border) / .5);
+    @apply text-primary;
+    background: hsl(var(--flow-accent-light));
+    border-color: hsl(var(--primary) / .2);
   }
-  .pr-icon-btn:active { transform: scale(.91); }
-  .pr-icon-btn:disabled { @apply opacity-25 cursor-not-allowed; }
+  .pr-icon-btn:active { transform: scale(.90); }
+  .pr-icon-btn:disabled { @apply opacity-30 cursor-not-allowed; }
 
-  /* ── Spinner ────────────────────────────────── */
+  /* ── Spinner ─────────────────────────────────── */
   .pr-spinner {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    font-family: 'DM Mono', monospace;
     @apply flex items-center justify-center gap-2.5
-           text-[12px] text-muted-foreground/50 py-14;
-    letter-spacing: -0.1px;
+           text-[11.5px] text-muted-foreground/50 py-14 tracking-[-0.1px];
   }
   .pr-spinner-ring {
     @apply w-[15px] h-[15px] rounded-full border-[1.5px]
-           border-muted-foreground/10 border-t-muted-foreground/50;
+           border-muted-foreground/10 border-t-primary/60;
     animation: spin .75s linear infinite;
   }
 
-  /* ── Error ──────────────────────────────────── */
+  /* ── Error ────────────────────────────────────── */
   .pr-error {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-    @apply rounded-[12px] px-4 py-3 text-[12.5px] text-destructive;
-    background: hsl(var(--destructive) / .07);
-    border: 0.5px solid hsl(var(--destructive) / .2);
-    letter-spacing: -0.1px;
+    font-family: 'DM Mono', monospace;
+    @apply rounded-[10px] px-4 py-3 text-[11.5px] text-destructive tracking-[-0.1px];
+    background: hsl(var(--flow-warn-light));
+    border: 1px solid hsl(var(--destructive) / .2);
   }
 
-  /* ── Empty state ────────────────────────────── */
+  /* ── Empty state ──────────────────────────────── */
   .pr-empty {
     @apply flex flex-col items-center justify-center py-16 text-center;
   }
   .pr-empty-icon {
-    @apply w-9 h-9 rounded-full flex items-center justify-center mb-3;
-    background: hsl(var(--muted) / .5);
-  }
-
-  /* ── The card container (iOS grouped list) ─── */
-  .pr-card {
-    @apply bg-card rounded-[16px] overflow-hidden;
-    border: 0.5px solid hsl(var(--border) / .5);
-    box-shadow: 0 1px 2px rgba(0,0,0,.04);
-  }
-
-  /* ── Grid row ───────────────────────────────── */
-  .pr-row {
-    display: grid;
-    grid-template-columns: 48px repeat(var(--pr-cols, 3), 1fr);
-    gap: 14px;
-    align-items: center;
-    padding: 0 18px;
-  }
-  .pr-row--header {
-    padding-top: 5px;
-    padding-bottom: 5px;
-  }
-  .pr-row--data {
-    padding-top: 13px;
-    padding-bottom: 13px;
-    animation: pr-rise .28s cubic-bezier(.4,0,.2,1) both;
-    transition: background .12s ease;
-  }
-  .pr-row--data:hover {
-    background: hsl(var(--muted) / .25);
-  }
-  .pr-row--border {
-    /* inset iOS-style hairline separator */
-    border-bottom: 0.5px solid hsl(var(--border) / .4);
-  }
-
-  /* ── Column labels ──────────────────────────── */
-  .pr-col-label {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-    @apply text-[9px] font-semibold uppercase tracking-[0.9px]
-           text-muted-foreground/40 select-none;
-  }
-
-  /* ── Room number ────────────────────────────── */
-  .pr-room {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
-    font-size: 17px;
-    font-weight: 600;
-    line-height: 1;
-    color: hsl(var(--primary));
-    letter-spacing: -0.3px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* ── Name pills (Apple-style) ───────────────── */
-  .pr-chip {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
-    @apply inline-flex items-center h-[22px] px-[9px] rounded-full
-           text-[11.5px] font-normal leading-none
-           transition-colors duration-100 cursor-default select-none;
-    letter-spacing: -0.15px;
-  }
-
-  /* Aff — subtle blue tint */
-  .pr-chip--aff {
-    background: hsl(211 100% 50% / .09);
-    color: hsl(211 80% 42%);
-  }
-  .dark .pr-chip--aff {
-    background: hsl(211 100% 60% / .12);
-    color: hsl(211 100% 72%);
-  }
-  .pr-chip--aff:hover {
-    background: hsl(211 100% 50% / .14);
-  }
-
-  /* Neg — neutral */
-  .pr-chip--neg {
-    background: hsl(var(--muted) / .7);
-    color: hsl(var(--foreground) / .6);
-  }
-  .pr-chip--neg:hover {
+    @apply w-11 h-11 rounded-full flex items-center justify-center mb-3;
     background: hsl(var(--muted));
-    color: hsl(var(--foreground) / .8);
+    border: 1px solid hsl(var(--border));
   }
 
-  /* Judge — muted sage/secondary */
+  /* ══════════════════════════════════════════════
+     THE PAIRINGS TABLE
+     ══════════════════════════════════════════════ */
+
+  /* Outer wrapper — white card with shadow */
+  .pr-table {
+    @apply bg-card rounded-2xl overflow-hidden;
+    border: 1px solid hsl(var(--border));
+    box-shadow:
+      0 1px 2px rgba(0,0,0,.03),
+      0 4px 16px rgba(0,0,0,.05);
+  }
+
+  /* Sticky header row */
+  .pr-table-head {
+    display: grid;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 16px 7px;
+    background: hsl(var(--flow-surface2));
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  /* Data row */
+  .pr-table-row {
+    display: grid;
+    gap: 10px;
+    align-items: start;  /* top-align so tall cells don't stretch others */
+    padding: 11px 16px 13px;
+    animation: pr-rise .26s cubic-bezier(.22,1,.36,1) both;
+    transition: background .1s ease;
+  }
+  .pr-table-row:hover {
+    background: hsl(var(--flow-accent-light) / .28);
+  }
+  .pr-table-row--sep {
+    border-bottom: 1px solid hsl(var(--border) / .5);
+  }
+
+  /* Column header labels */
+  .pr-col-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 8.5px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground) / .5);
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  /* Row number */
+  .pr-row-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 400;
+    color: hsl(var(--muted-foreground) / .3);
+    line-height: 1;
+    padding-top: 3px;   /* optically align with chip top */
+    user-select: none;
+    text-align: right;
+    tabular-nums: true;
+  }
+
+  /* Cell — flex wrap container; chips flow naturally within the column width */
+  .pr-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: flex-start;
+    min-width: 0;
+  }
+
+  /* Empty cell dash */
+  .pr-empty-cell {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: hsl(var(--muted-foreground) / .25);
+    line-height: 1.6;
+  }
+
+  /* ── Room pill — outlined, auto-width ─────────── */
+  .pr-room-pill {
+    font-family: 'DM Mono', monospace;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 10px;
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    user-select: none;
+    background: hsl(var(--primary) / .08);
+    color: hsl(var(--primary));
+    border: 1px solid hsl(var(--primary) / .2);
+    letter-spacing: 0.1px;
+  }
+
+  /* ── Name chips — pill-shaped, content-sized ─── */
+  .pr-chip {
+    font-family: 'DM Mono', monospace;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: 100px;   /* full pill */
+    font-size: 10.5px;
+    font-weight: 500;
+    line-height: 1;
+    /* Each chip sizes to its text — no forced width */
+    white-space: nowrap;
+    cursor: default;
+    user-select: none;
+    letter-spacing: -0.1px;
+    transition: background .1s ease;
+  }
+
+  /* Aff — soft green */
+  .pr-chip--aff {
+    background: hsl(var(--flow-accent-light));
+    color: hsl(var(--primary));
+    border: 1px solid hsl(var(--primary) / .15);
+  }
+  .pr-chip--aff:hover { background: hsl(153 38% 86%); }
+
+  /* Neg — warm gold */
+  .pr-chip--neg {
+    background: hsl(var(--flow-gold-light));
+    color: hsl(var(--flow-gold));
+    border: 1px solid hsl(var(--flow-gold) / .2);
+  }
+  .pr-chip--neg:hover { background: hsl(42 72% 87%); }
+
+  /* Judge — neutral parchment */
   .pr-chip--judge {
-    background: hsl(var(--muted) / .55);
-    color: hsl(var(--foreground) / .55);
+    background: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border));
   }
   .pr-chip--judge:hover {
-    background: hsl(var(--muted) / .85);
-    color: hsl(var(--foreground) / .75);
+    background: hsl(var(--border));
+    color: hsl(var(--foreground) / .7);
   }
+
+  /* "+N more" expand toggle */
+  .pr-chip--more {
+    font-family: 'DM Mono', monospace;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 100px;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    background: transparent;
+    color: hsl(var(--primary) / .65);
+    border: 1px dashed hsl(var(--primary) / .3);
+    transition: all .13s ease;
+  }
+  .pr-chip--more:hover {
+    background: hsl(var(--flow-accent-light));
+    color: hsl(var(--primary));
+    border-color: hsl(var(--primary) / .4);
+    border-style: solid;
+  }
+  .pr-chip--more:active { transform: scale(.93); }
 }

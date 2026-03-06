@@ -396,81 +396,188 @@ async function handlePairings(body: { token: string; round_id: string }) {
     const html = await res.text();
     if (isLoginPage(html)) return err('Session expired - please log in again', 401);
 
-    // Extract table with id matching round_id
-    const tableRegex = new RegExp(`<table[^>]*id=["']${body.round_id}["'][^>]*>([\\s\\S]*?)<\\/table>`, 'gi');
-    const tableMatch = tableRegex.exec(html);
-    
-    if (!tableMatch) {
-      return json({ pairings: [], headers: [], message: 'No pairings table found' });
+    // ── 1. Find the table ──────────────────────────────────────────────────────
+    // Try strict id match first, then loose id-contains match, then first table.
+    let tableContent = '';
+    const strictId = new RegExp(
+      `<table[^>]*\\bid=["']${body.round_id}["'][^>]*>[\\s\\S]*?<\\/table>`, 'i'
+    );
+    const looseId = new RegExp(
+      `<table[^>]*\\bid=["'][^"']*${body.round_id}[^"']*["'][^>]*>[\\s\\S]*?<\\/table>`, 'i'
+    );
+    const anyTable = /<table[\s\S]*?<\/table>/i;
+
+    let m = strictId.exec(html) ?? looseId.exec(html) ?? anyTable.exec(html);
+    if (m) tableContent = m[0];
+
+    if (!tableContent) {
+      return json({ pairings: [], headers: [], message: 'No pairings table found',
+                    html_preview: html.substring(0, 4000) });
     }
-    
-    const tableContent = tableMatch[0];
-    
-    // Extract headers from thead
+
+    // ── 2. Helper: clean raw cell HTML → plain text ────────────────────────────
+    function cellText(raw: string): string {
+      return raw
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<span[^>]*class=["'][^"']*\bfa\b[^"']*["'][^>]*>[\s\S]*?<\/span>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#\d+;/g, '')
+        .replace(/&[a-z][a-z0-9]*;/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    // ── 3. Extract all <tr> arrays with their cell tags and colspan ────────────
+    // Returns [{tag:'th'|'td', text, colspan}, ...] per row.
+    function parseRows(html: string): Array<Array<{tag: string; text: string; colspan: number}>> {
+      const rows: Array<Array<{tag: string; text: string; colspan: number}>> = [];
+      const rowRe = /<tr(?:[^>]*)>([\s\S]*?)<\/tr>/gi;
+      let rMatch: RegExpExecArray | null;
+      while ((rMatch = rowRe.exec(html)) !== null) {
+        const cells: Array<{tag: string; text: string; colspan: number}> = [];
+        const cellRe = /<(th|td)(?:[^>]*)>([\s\S]*?)<\/\1>/gi;
+        let cMatch: RegExpExecArray | null;
+        const rowHtml = rMatch[1];
+        while ((cMatch = cellRe.exec(rowHtml)) !== null) {
+          const tag = cMatch[1].toLowerCase();
+          const raw = cMatch[0];
+          const colspanM = /colspan=["']?(\d+)["']?/i.exec(raw);
+          const colspan = colspanM ? parseInt(colspanM[1], 10) : 1;
+          cells.push({ tag, text: cellText(cMatch[2]), colspan });
+        }
+        if (cells.length > 0) rows.push(cells);
+      }
+      return rows;
+    }
+
+    // ── 4. Expand a row of cells into a flat string array, respecting colspan ──
+    function expandCells(cells: Array<{tag: string; text: string; colspan: number}>): string[] {
+      const out: string[] = [];
+      for (const c of cells) {
+        for (let i = 0; i < c.colspan; i++) out.push(c.text);
+      }
+      return out;
+    }
+
+    // ── 5. Normalise a header string → snake_case key ──────────────────────────
+    let blankIdx = 0;
+    function normaliseHeader(raw: string): string {
+      const key = raw
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      if (!key) {
+        blankIdx++;
+        return `entry_${blankIdx}`;
+      }
+      // Deduplicate: if key already used, append _2, _3 …
+      return key;
+    }
+
+    // ── 6. Build headers list ──────────────────────────────────────────────────
+    // Strategy:
+    //   a) Look for a <thead> block → use its first <tr>
+    //   b) Otherwise use the first <tr> in the table that contains any <th>
+    //   c) Otherwise use the very first <tr> as headers (treated as plain text)
     const headers: string[] = [];
-    const theadRegex = /<thead>([\s\S]*?)<\/thead>/gi;
-    const theadMatch = theadRegex.exec(tableContent);
-    
-    if (theadMatch) {
-      const thRegex = /<th[^>]*>([^<]+)</gi;
-      let thMatch: RegExpExecArray | null;
-      while ((thMatch = thRegex.exec(theadMatch[1])) !== null) {
-        const header = thMatch[1]
-          .replace(/\s+/g, ' ')
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '_');
-        if (header) headers.push(header);
+    blankIdx = 0;
+
+    // Separate thead and "body" portions for later row extraction
+    const theadM = /<thead[\s\S]*?>([\s\S]*?)<\/thead>/i.exec(tableContent);
+    const tbodyM = /<tbody[\s\S]*?>([\s\S]*?)<\/tbody>/i.exec(tableContent);
+
+    // Strip <thead>/<tbody> wrappers to get raw rows for fallback
+    const rawTableInner = tableContent
+      .replace(/<thead[\s\S]*?<\/thead>/gi, '')
+      .replace(/<tfoot[\s\S]*?<\/tfoot>/gi, '');
+
+    let headerCells: Array<{tag: string; text: string; colspan: number}> = [];
+    let dataRowsHtml = '';
+
+    if (theadM) {
+      // Has explicit <thead>
+      const headRows = parseRows(theadM[1]);
+      if (headRows.length > 0) headerCells = headRows[0];
+      dataRowsHtml = tbodyM ? tbodyM[1] : rawTableInner;
+    } else {
+      // No <thead> — scan all rows for first one containing <th>
+      const allRows = parseRows(tbodyM ? tbodyM[1] : rawTableInner);
+      const firstThRow = allRows.findIndex(r => r.some(c => c.tag === 'th'));
+      if (firstThRow !== -1) {
+        headerCells = allRows[firstThRow];
+        // Data rows = everything after the header row
+        const remaining = allRows.slice(firstThRow + 1);
+        dataRowsHtml = remaining.map(r =>
+          '<tr>' + r.map(c => `<td>${c.text}</td>`).join('') + '</tr>'
+        ).join('');
+      } else if (allRows.length > 0) {
+        // No <th> at all — treat first row as headers
+        headerCells = allRows[0];
+        const remaining = allRows.slice(1);
+        dataRowsHtml = remaining.map(r =>
+          '<tr>' + r.map(c => `<td>${c.text}</td>`).join('') + '</tr>'
+        ).join('');
+      } else {
+        dataRowsHtml = tbodyM ? tbodyM[1] : rawTableInner;
       }
     }
-    
-    // Extract rows from tbody
+
+    // Expand colspan in headers and build the key list
+    const usedKeys = new Map<string, number>();
+    for (const cell of headerCells) {
+      for (let i = 0; i < cell.colspan; i++) {
+        let key = normaliseHeader(i === 0 ? cell.text : '');
+        // Handle duplicate keys (e.g. two "judge" columns)
+        const count = usedKeys.get(key) ?? 0;
+        usedKeys.set(key, count + 1);
+        if (count > 0) key = `${key}_${count + 1}`;
+        headers.push(key);
+      }
+    }
+
+    // ── 7. Extract data rows ───────────────────────────────────────────────────
     const pairings: Array<Record<string, string>> = [];
-    const tbodyRegex = /<tbody>([\s\S]*?)<\/tbody>/gi;
-    const tbodyMatch = tbodyRegex.exec(tableContent);
-    
-    if (tbodyMatch) {
-      const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-      let rowMatch: RegExpExecArray | null;
-      
-      while ((rowMatch = rowRegex.exec(tbodyMatch[1])) !== null) {
-        const rowHtml = rowMatch[1];
-        const cells: string[] = [];
-        
-        // Extract td content
-        const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-        let tdMatch: RegExpExecArray | null;
-        
-        while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
-          let cellContent = tdMatch[1];
-          
-          // Extract text from spans, removing HTML tags
-          cellContent = cellContent
-            .replace(/<span[^>]*class=["'][^"']*fa[^"']*["'][^>]*>.*?<\/span>/gi, '') // Remove font-awesome icons
-            .replace(/<[^>]+>/g, ' ') // Remove all HTML tags
-            .replace(/&amp;/g, '&')
-            .replace(/&#\d+;/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-          
-          cells.push(cellContent);
+
+    if (dataRowsHtml) {
+      const dataRows = parseRows(dataRowsHtml);
+      for (const rowCells of dataRows) {
+        const flatCells = expandCells(rowCells);
+        if (flatCells.length === 0) continue;
+
+        const row: Record<string, string> = {};
+        // Map by index; if row has MORE cells than headers, create extra columns
+        const colCount = Math.max(headers.length, flatCells.length);
+        for (let i = 0; i < colCount; i++) {
+          const key = headers[i] ?? `col_${i + 1}`;
+          row[key] = flatCells[i] ?? '';
         }
-        
-        // Map cells to headers
-        if (cells.length > 0) {
-          const row: Record<string, string> = {};
-          headers.forEach((header, index) => {
-            row[header] = cells[index] || '';
-          });
+        // Only store the row if at least one cell is non-empty
+        if (Object.values(row).some(v => v !== '')) {
           pairings.push(row);
         }
       }
     }
-    
-    return json({ 
-      pairings, 
+
+    // ── 8. If we derived extra keys from data rows, add them to headers list ──
+    if (pairings.length > 0) {
+      const allKeys = new Set(headers);
+      for (const row of pairings) {
+        for (const k of Object.keys(row)) {
+          if (!allKeys.has(k)) { allKeys.add(k); headers.push(k); }
+        }
+      }
+    }
+
+    return json({
+      pairings,
       headers,
-      total: pairings.length 
+      total: pairings.length,
     });
   } catch (e) {
     return err(`Failed to fetch pairings: ${(e as Error).message}`, 502);
