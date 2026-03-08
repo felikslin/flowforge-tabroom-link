@@ -30,6 +30,8 @@ interface TabroomState {
   coinFlip: TabroomCoinFlip | null;
   ballots: TabroomRound[];
   myRounds: TabroomRound[];
+  myRoundsEntries: Record<string, string>[];
+  myRoundsHeaders: string[];
   myRecord: { wins: number; losses: number };
   judgeInfo: TabroomJudgeInfo | null;
   entries: TabroomTournament[];
@@ -67,6 +69,8 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
   const [coinFlip, setCoinFlip] = useState<TabroomCoinFlip | null>(null);
   const [ballots, setBallots] = useState<(TabroomRound & { tournament_name?: string })[]>([]);
   const [myRounds, setMyRounds] = useState<(TabroomRound & { tournament_name?: string })[]>([]);
+  const [myRoundsEntries, setMyRoundsEntries] = useState<Record<string, string>[]>([]);
+  const [myRoundsHeaders, setMyRoundsHeaders] = useState<string[]>([]);
   const [myRecord, setMyRecord] = useState({ wins: 0, losses: 0 });
   const [judgeInfo, setJudgeInfo] = useState<TabroomJudgeInfo | null>(null);
   const [entries, setEntries] = useState<TabroomTournament[]>([]);
@@ -159,18 +163,19 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
 
   // My Rounds
   const refreshMyRounds = useCallback(async () => {
-    if (!selectedTournament) return;
     setLoad("rounds", true); setErr("rounds", null);
     try {
-      const res = await tabroomGetMyRounds(user.token, selectedTournament.id, user.name, user.person_id || undefined);
+      const res = await tabroomGetMyRounds(user.token, selectedTournament?.id, user.name, user.person_id || undefined);
       setMyRounds(res.rounds || []);
+      setMyRoundsEntries(res.entries || []);
+      setMyRoundsHeaders(res.headers || []);
       setMyRecord(res.record || { wins: 0, losses: 0 });
       setHtmlPreviews((h) => ({ ...h, rounds: res.html_preview }));
     } catch (err: any) { setErr("rounds", err.message); }
     finally { setLoad("rounds", false); }
   }, [user.token, selectedTournament, user.name, user.person_id]);
 
-  useEffect(() => { if (selectedTournament) refreshMyRounds(); }, [selectedTournament, refreshMyRounds]);
+  useEffect(() => { refreshMyRounds(); }, [user.token]);
 
   // Ballots
   const refreshBallots = useCallback(async () => {
@@ -236,7 +241,7 @@ export function TabroomProvider({ user, children }: { user: FlowUser; children: 
       user, tournaments, selectedTournament,
       pairings, pairingsHeaders, pairingsEvents,
       selectedPairingsEvent, selectedPairingsRound,
-      coinFlip, ballots, myRounds, myRecord, judgeInfo, entries,
+      coinFlip, ballots, myRounds, myRoundsEntries, myRoundsHeaders, myRecord, judgeInfo, entries,
       upcomingTournaments, loading, errors,
       selectTournament, selectPairingsEvent, selectPairingsRound,
       refreshPairings, refreshBallots,

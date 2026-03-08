@@ -134,7 +134,7 @@ export async function tabroomGetBallots(token: string, tournId: string, entryId?
   return callTabroom("ballots", { token, tourn_id: tournId, entry_id: entryId, entry_name: entryName, person_name: personName, person_id: personId });
 }
 
-export async function tabroomGetMyRounds(token: string, tournId: string, personName?: string, personId?: string): Promise<{ rounds: TabroomRound[]; record: { wins: number; losses: number }; total: number; html_preview?: string }> {
+export async function tabroomGetMyRounds(token: string, tournId?: string, personName?: string, personId?: string): Promise<{ rounds: TabroomRound[]; entries: Record<string, string>[]; headers: string[]; record: { wins: number; losses: number }; total: number; html_preview?: string }> {
   return callTabroom("my-rounds", { token, tourn_id: tournId, person_name: personName, person_id: personId });
 }
 

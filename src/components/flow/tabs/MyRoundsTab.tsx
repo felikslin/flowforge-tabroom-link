@@ -24,10 +24,11 @@ function formatTime(s: number) {
 }
 
 export function MyRoundsTab({ onTabChange }: MyRoundsTabProps) {
-  const { user, myRounds, myRecord, pairings, coinFlip, selectedTournament, loading, errors, refreshMyRounds } = useTabroom();
+  const { user, myRounds, myRoundsEntries, myRoundsHeaders, myRecord, pairings, coinFlip, selectedTournament, loading, errors, refreshMyRounds } = useTabroom();
   const { toast } = useToast();
 
   const hasRoundData = myRounds.length > 0;
+  const hasEntriesData = myRoundsEntries.length > 0;
 
   // Coin flip timer state
   const [timerDuration, setTimerDuration] = useState(5 * 60);
@@ -167,7 +168,7 @@ export function MyRoundsTab({ onTabChange }: MyRoundsTabProps) {
         My Rounds
       </h2>
       <p className="text-muted-foreground text-[11.5px] mb-5">
-        {selectedTournament?.name || "No tournament selected"}
+        {selectedTournament?.name || "Current entries"}
         {hasRoundData && ` · ${myRecord.wins}–${myRecord.losses}`}
       </p>
 
@@ -340,22 +341,63 @@ export function MyRoundsTab({ onTabChange }: MyRoundsTabProps) {
         </div>
       )}
 
-      {selectedTournament && !loading.rounds && (
-        <>
+      {/* Refresh button */}
+      {!loading.rounds && (
+        <div className="flex items-center gap-3 mb-4">
           {hasRoundData && (
-            <div className="flex items-center gap-3 mb-4">
-              <div className="bg-flow-accent-light text-primary px-3 py-1.5 rounded-full text-xs font-medium">
-                Record: {myRecord.wins}–{myRecord.losses}
-              </div>
-              <button
-                onClick={refreshMyRounds}
-                className="px-3 py-1.5 rounded-md font-mono text-[11px] cursor-pointer bg-primary text-primary-foreground border-none hover:brightness-90 transition-all"
-              >
-                ↻ Refresh
-              </button>
+            <div className="bg-flow-accent-light text-primary px-3 py-1.5 rounded-full text-xs font-medium">
+              Record: {myRecord.wins}–{myRecord.losses}
             </div>
           )}
+          <button
+            onClick={refreshMyRounds}
+            className="px-3 py-1.5 rounded-md font-mono text-[11px] cursor-pointer bg-primary text-primary-foreground border-none hover:brightness-90 transition-all"
+          >
+            ↻ Refresh
+          </button>
+        </div>
+      )}
 
+      {/* Entries table from /user/student/index.mhtml?person_id=... */}
+      {hasEntriesData && !loading.rounds && (
+        <div className="flow-card mb-5 overflow-x-auto">
+          <div className="flow-label mb-2">Current Entries</div>
+          <table className="w-full text-[11px] border-collapse">
+            {myRoundsHeaders.length > 0 && (
+              <thead>
+                <tr>
+                  {myRoundsHeaders.map((h, i) => (
+                    <th key={i} className="text-left text-muted-foreground font-medium pb-1.5 pr-3 border-b border-border whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+            )}
+            <tbody>
+              {myRoundsEntries.map((row, ri) => (
+                <tr key={ri} className="border-b border-border/50 last:border-0">
+                  {(myRoundsHeaders.length > 0 ? myRoundsHeaders : Object.keys(row)).map((h, ci) => (
+                    <td key={ci} className="py-1.5 pr-3 text-foreground align-top">
+                      {row[h] || ''}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading.rounds && !hasEntriesData && !hasRoundData && !errors.rounds && (
+        <div className="text-center py-8 text-muted-foreground text-xs">
+          No entries found. You may need to be registered for a current tournament.
+        </div>
+      )}
+
+      {/* Per-tournament round cards */}
+      {selectedTournament && !loading.rounds && (
+        <>
           {/* Live round data */}
           {hasRoundData && myRounds.map((r, i) => {
             const isWin = /w|win/i.test(r.decision);
@@ -486,11 +528,7 @@ export function MyRoundsTab({ onTabChange }: MyRoundsTabProps) {
             );
           })()}
 
-          {!hasRoundData && pairings.length === 0 && !errors.rounds && (
-            <div className="text-center py-8 text-muted-foreground text-xs">
-              No round data found yet. Pairings may not have been posted.
-            </div>
-          )}
+          {!hasRoundData && pairings.length === 0 && !errors.rounds && null}
         </>
       )}
     </div>

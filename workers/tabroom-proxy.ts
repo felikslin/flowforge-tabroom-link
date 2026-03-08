@@ -584,6 +584,272 @@ async function handlePairings(body: { token: string; round_id: string }) {
   }
 }
 
+// ─── TABLE PARSING HELPERS ───────────────────────────────
+
+function cleanCellHtml(raw: string): string {
+  return raw
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#\d+;/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseSingleTable(tableHtml: string): { headers: string[]; rows: string[][] } {
+  const headers: string[] = [];
+  const rows: string[][] = [];
+
+  const theadMatch = /<thead[\s\S]*?>([\s\S]*?)<\/thead>/i.exec(tableHtml);
+  if (theadMatch) {
+    const thCells = theadMatch[1].match(/<th[^>]*>([\s\S]*?)<\/th>/gi) || [];
+    headers.push(...thCells.map(th => cleanCellHtml(th)));
+  } else {
+    const firstRowMatch = /<tr[^>]*>([\s\S]*?)<\/tr>/i.exec(tableHtml);
+    if (firstRowMatch) {
+      const thCells = firstRowMatch[1].match(/<th[^>]*>([\s\S]*?)<\/th>/gi) || [];
+      if (thCells.length) headers.push(...thCells.map(th => cleanCellHtml(th)));
+    }
+  }
+
+  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let rowMatch: RegExpExecArray | null;
+  while ((rowMatch = rowRegex.exec(tableHtml)) !== null) {
+    const rowHtml = rowMatch[1];
+    if (/<th[\s>]/i.test(rowHtml)) continue;
+    const tdCells = rowHtml.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
+    if (tdCells.length === 0) continue;
+    const cellTexts = tdCells.map(td => cleanCellHtml(td));
+    if (cellTexts.some(c => c !== '')) rows.push(cellTexts);
+  }
+
+  return { headers, rows };
+}
+
+function parseAllTablesFromHtml(html: string): Array<{ headers: string[]; rows: string[][] }> {
+  const tables: Array<{ headers: string[]; rows: string[][] }> = [];
+  const tableRegex = /<table[\s\S]*?<\/table>/gi;
+  let tableMatch: RegExpExecArray | null;
+  while ((tableMatch = tableRegex.exec(html)) !== null) {
+    const { headers, rows } = parseSingleTable(tableMatch[0]);
+    if (rows.length > 0) tables.push({ headers, rows });
+  }
+  return tables;
+}
+
+function mapRowsToRounds(headers: string[], rows: string[][]): Array<Record<string, string>> {
+  const rounds: Array<Record<string, string>> = [];
+  const lh = headers.map(h => h.toLowerCase());
+  for (const row of rows) {
+    const entry: Record<string, string> = {};
+    for (let i = 0; i < Math.min(headers.length, row.length); i++) {
+      const h = lh[i];
+      const val = row[i] || '';
+      if (h.includes('round') || h === 'rd' || h === 'r') entry.round = val;
+      else if (h.includes('side')) entry.side = val;
+      else if (h.includes('opp')) entry.opponent = val;
+      else if (h.includes('judge') || h.includes('panel')) entry.judge = val;
+      else if (h.includes('decision') || h.includes('result') || h.includes('w/l') || h.includes('ballot')) entry.decision = val;
+      else if (h.includes('point') || h.includes('speak') || h.includes('pts')) entry.points = val;
+      else if (h.includes('room')) entry.room = val;
+    }
+    if (Object.values(entry).some(v => v !== '')) rounds.push(entry);
+  }
+  return rounds;
+}
+
+// ─── ROUNDS TABLE PARSER ─────────────────────────────────
+// Parses the structured round rows from /user/student/index.mhtml
+// Columns: Round | Start | Room | Side | Opp | Doc Share | Judges & Results
+function extractCurrentRounds(html: string): {
+  rounds: Array<Record<string, string>>;
+  headers: string[];
+  wins: number;
+  losses: number;
+} {
+  const HEADERS = ['Round', 'Start', 'Room', 'Side', 'Opponent', 'Doc Share', 'Judge', 'Result'];
+  const rounds: Array<Record<string, string>> = [];
+  let wins = 0;
+  let losses = 0;
+
+  // Try to isolate the "current" screen section to avoid picking up future/results tables
+  let searchHtml = html;
+  const currentMatch = html.match(
+    /<div[^>]+class="[^"]*screens\s+current[^"]*"[^>]*>([\s\S]*?)(?=<div[^>]+class="[^"]*screens\s+(?:future|results)[^"]*")/i
+  );
+  if (currentMatch) searchHtml = currentMatch[1];
+
+  // Each data row has class="row"; feedback/hidden rows are skipped
+  const rowRegex = /<tr\s+class="row">([\s\S]*?)<\/tr>/gi;
+  let rowMatch: RegExpExecArray | null;
+
+  while ((rowMatch = rowRegex.exec(searchHtml)) !== null) {
+    const rowHtml = rowMatch[1];
+
+    // Extract <td> cells in order
+    const cells: string[] = [];
+    const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    let tdMatch: RegExpExecArray | null;
+    while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
+      cells.push(tdMatch[1]);
+    }
+    if (cells.length < 4) continue;
+
+    // Cell 0: Round — prefer the "smallhide" div ("Round 6") over "smallshow" ("R6")
+    const roundDivMatch = (cells[0] ?? '').match(/<div[^>]*class="[^"]*smallhide[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    const round = roundDivMatch
+      ? roundDivMatch[1].trim()
+      : cleanCellHtml(cells[0] ?? '').trim();
+
+    // Cell 1: Start — first two flex-row divs: date + local time (skip timezone div)
+    const startDivs = Array.from(
+      (cells[1] ?? '').matchAll(/<div[^>]*class="[^"]*flexrow[^"]*"[^>]*>([\s\S]*?)<\/div>/gi)
+    );
+    const start = startDivs
+      .slice(0, 2)
+      .map(m => m[1].trim().replace(/\s+/g, ' '))
+      .filter(Boolean)
+      .join(' ');
+
+    // Cell 2: Room
+    const room = cleanCellHtml(cells[2] ?? '').trim();
+
+    // Cell 3: Side — "Pro 2nd" / "Con 1st"
+    const side = cleanCellHtml(cells[3] ?? '').trim().replace(/\s+/g, ' ');
+
+    // Cell 4: Opponent team code
+    const opponent = cleanCellHtml(cells[4] ?? '').trim();
+
+    // Cell 5: Doc Share — extract link text; fall back to URL suffix
+    const docCell = cells[5] ?? '';
+    const docShare = (() => {
+      const m = docCell.match(/<a[^>]+href="([^"]+)"[^>]*>([^<]*)<\/a>/i);
+      if (!m) return '';
+      if (m[2].trim()) return m[2].trim();
+      const parts = m[1].split('/');
+      return parts[parts.length - 1] || '';
+    })();
+
+    // Cell 6: Judges & Results
+    const judgeCell = cells[6] ?? '';
+    // Judge name: find all title="..." values that contain a comma (Last, First format)
+    // and aren't "Paradigm"
+    const judgeTitles = Array.from(judgeCell.matchAll(/title="([\s\S]*?)"/gi))
+      .map(m => m[1].trim().replace(/\s+/g, ' '))
+      .filter(t => t !== 'Paradigm' && t.includes(','));
+    const judge = judgeTitles[0] || '';
+
+    // W/L result from the quarter-width span
+    const wlMatch = judgeCell.match(
+      /<span[^>]*class="[^"]*quarter\s+semibold\s+centeralign[^"]*"[^>]*>\s*([WL])\s*<\/span>/i
+    );
+    const result = wlMatch ? wlMatch[1].toUpperCase() : '';
+
+    if (result === 'W') wins++;
+    else if (result === 'L') losses++;
+
+    if (round || opponent) {
+      rounds.push({
+        Round: round,
+        Start: start,
+        Room: room,
+        Side: side,
+        Opponent: opponent,
+        'Doc Share': docShare,
+        Judge: judge,
+        Result: result,
+      });
+    }
+  }
+
+  return { rounds, headers: HEADERS, wins, losses };
+}
+
+// ─── MY ROUNDS ───────────────────────────────────────────
+async function handleMyRounds(body: { token: string; tourn_id?: string; person_name?: string; person_id?: string }) {
+  if (!body.token) return err('Token is required');
+
+  try {
+    let personId = body.person_id || null;
+    let entriesHtml = '';
+
+    // Step 1: Navigate to /user/home.mhtml and find the Entries link
+    try {
+      const homeRes = await tabroomFetch('/user/home.mhtml', body.token);
+      const homeHtml = await homeRes.text();
+      if (!isLoginPage(homeHtml)) {
+        // Find: href="/user/student/index.mhtml?person_id=<id>"
+        const entriesMatch = homeHtml.match(/href="(\/user\/student\/index\.mhtml\?person_id=(\d+))"/);
+        if (entriesMatch) {
+          personId = entriesMatch[2];
+          // Step 2: Follow the Entries link
+          const entriesRes = await tabroomFetch(entriesMatch[1], body.token);
+          entriesHtml = await entriesRes.text();
+          console.log(`MyRounds: Fetched entries page for person_id=${personId}, len=${entriesHtml.length}`);
+        }
+      }
+    } catch (e) {
+      console.log('MyRounds home.mhtml failed:', (e as Error).message);
+    }
+
+    // Fallback: use person_id directly
+    if (!entriesHtml && personId) {
+      try {
+        const res = await tabroomFetch(`/user/student/index.mhtml?person_id=${personId}`, body.token);
+        entriesHtml = await res.text();
+        console.log(`MyRounds: Direct person_id fetch, len=${entriesHtml.length}`);
+      } catch (e) {
+        console.log('MyRounds person_id direct fetch failed:', (e as Error).message);
+      }
+    }
+
+    // Fallback: plain student index
+    if (!entriesHtml) {
+      try {
+        const res = await tabroomFetch('/user/student/index.mhtml', body.token);
+        entriesHtml = await res.text();
+      } catch (e) {
+        console.log('MyRounds student/index fallback failed:', (e as Error).message);
+      }
+    }
+
+    if (!entriesHtml || isLoginPage(entriesHtml)) {
+      return json({ rounds: [], entries: [], headers: [], record: { wins: 0, losses: 0 }, total: 0 });
+    }
+
+    // Step 3: Use specialized parser to extract structured round data
+    const { rounds: entries, headers, wins, losses } = extractCurrentRounds(entriesHtml);
+
+    // Build RoundData-compatible objects for the rounds field
+    const rounds = entries.map(e => ({
+      round: e['Round'] || '',
+      status: 'current' as const,
+      opponent: e['Opponent'] || '',
+      room: e['Room'] || '',
+      side: e['Side'] || '',
+      judge: e['Judge'] || '',
+      start: e['Start'] || '',
+      result: e['Result'] || '',
+    }));
+
+    return json({
+      rounds,
+      entries,
+      headers,
+      record: { wins, losses },
+      total: entries.length,
+      html_preview: entriesHtml.substring(0, 3000),
+    });
+  } catch (e) {
+    return err(`Failed to fetch rounds: ${(e as Error).message}`, 502);
+  }
+}
+
 // (Truncating for brevity - continued in next comment with remaining functions)
 function isLoginPage(html: string): boolean {
   const lower = html.toLowerCase();
@@ -624,6 +890,8 @@ export async function handleTabroomProxy(request: Request, env: Env): Promise<Re
       return handlePairingsEvents(body as any);
     case 'pairings':
       return handlePairings(body as any);
+    case 'my-rounds':
+      return handleMyRounds(body as any);
     // Add other handlers here
     default:
       return json({
