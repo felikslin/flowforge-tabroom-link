@@ -3,52 +3,75 @@ import { useTabroom } from "@/contexts/TabroomContext";
 import type { TabroomPairingsEvent, TabroomPairingsRound } from "@/lib/tabroom-api";
 
 /* ── Column type detection ──────────────────────────────── */
-const isRoomCol   = (h: string) => /^(room|chamber)$/i.test(h);
-const isJudgeCol  = (h: string) => /judg/i.test(h);
+const isRoomCol      = (h: string) => /^(room|chamber)$/i.test(h);
+const isJudgeCol     = (h: string) => /judg/i.test(h);
+/** Congress: presiding officer / parliamentarian → renders like judge */
+const isPresidingCol = (h: string) => /presid|parliamentar/i.test(h);
+/** Congress: bill / legislation / docket / resolution → neutral label chip */
+const isMeasureCol   = (h: string) => /legislat|bill|resolut|docket|measure/i.test(h);
 const isAffCol    = (h: string) => /^aff/i.test(h);
+const isNegCol    = (h: string) => /^neg/i.test(h);
 const isEntryCol  = (h: string) => /^entry_\d+$/i.test(h);
 const entryColIndex = (h: string) => parseInt(h.replace(/^entry_/i, ''), 10);
 
 /**
- * Split a raw cell value into individual name tokens.
+ * Split judge cell value into individual names.
+ * Keeps "Lastname, Firstname" format intact — does NOT flip.
  *
- * Priority:
- *  1. "Last, First" single-person — exactly two comma parts, each ≤ 2 words
- *     → flip to "First Last" and return as one name
- *  2. Multiple comma parts → list of separate people
- *  3. " & " → list of separate people
- *  4. Judge blob (all caps / Title Case, no separator) → regex-extract names
- *  5. Everything else → return as-is
+ * Handles (in order of priority):
+ *  1. Newline-separated  →  split on \n
+ *  2. Semicolon-separated → split on ;
+ *  3. " & "-separated     → split on " & "
+ *  4. Exactly 2 comma parts → single "Lastname, Firstname" → kept as-is
+ *  5. Even ≥ 4 comma parts → grouped in pairs as "Lastname, Firstname"
+ *  6. Anything else → return parts as-is
  */
-const splitNames = (v: string, isJudge = false): string[] => {
+const splitJudgeNames = (v: string): string[] => {
   if (!v) return [];
-
-  const commaParts = v.split(",").map(s => s.trim()).filter(Boolean);
-
-  if (commaParts.length === 2) {
-    const [a, b] = commaParts;
-    const aWords = a.split(/\s+/).filter(Boolean).length;
-    const bWords = b.split(/\s+/).filter(Boolean).length;
-    // Heuristic: "Surname, Firstname" — first part is a short surname,
-    // second part is a given name (≤ 2 words total on each side)
-    if (aWords <= 2 && bWords <= 2) {
-      return [`${b} ${a}`]; // flip to "First Last"
-    }
-  }
-
-  if (commaParts.length > 1) return commaParts;
+  if (v.includes("\n")) return v.split("\n").map(s => s.trim()).filter(Boolean);
+  if (v.includes(";"))  return v.split(";").map(s => s.trim()).filter(Boolean);
   if (v.includes(" & ")) return v.split(" & ").map(s => s.trim()).filter(Boolean);
 
-  if (isJudge) {
-    // Extract consecutive Title-Cased word groups (handles hyphenated names)
-    const matches = v.match(/[A-Z][a-zA-Z'\-]+(?:\s[A-Z][a-zA-Z'\-]+)*/g);
-    if (matches && matches.length > 1) return matches;
+  const parts = v.split(",").map(s => s.trim()).filter(Boolean);
+  if (parts.length === 2) return [v.trim()]; // single "Last, First" — keep as-is
+  if (parts.length >= 4 && parts.length % 2 === 0) {
+    const names: string[] = [];
+    for (let i = 0; i < parts.length; i += 2) names.push(`${parts[i]}, ${parts[i + 1]}`);
+    return names;
   }
+  return parts.length > 0 ? parts : [v.trim()];
+};
 
-  return [v];
+/**
+ * Split a team/entry cell into individual name tokens.
+ *
+ * Priority:
+ *  1. Newline / semicolon / " & " / comma separators — split on those
+ *  2. Otherwise treat successive word-pairs as "Firstname Lastname"
+ *     (handles hyphenated last names like "Duran-Oropeza" since those
+ *      are a single whitespace-token)
+ */
+const splitTeamNames = (v: string): string[] => {
+  if (!v) return [];
+  if (v.includes("\n")) return v.split("\n").map(s => s.trim()).filter(Boolean);
+  if (v.includes(";"))  return v.split(";").map(s => s.trim()).filter(Boolean);
+  if (v.includes(" & ")) return v.split(" & ").map(s => s.trim()).filter(Boolean);
+  const commaParts = v.split(",").map(s => s.trim()).filter(Boolean);
+  if (commaParts.length > 1) return commaParts;
+
+  // No delimiter found — split word-tokens into pairs ("First Last")
+  const words = v.trim().split(/\s+/);
+  if (words.length >= 4 && words.length % 2 === 0) {
+    const names: string[] = [];
+    for (let i = 0; i < words.length; i += 2) names.push(`${words[i]} ${words[i + 1]}`);
+    return names;
+  }
+  // Odd count or ≤ 3 words — just return the whole string
+  return [v.trim()];
 };
 
 const JUDGE_MAX_VISIBLE = 5;
+const ENTRY_MAX_VISIBLE = 8;
 
 /* Deterministic per-event colours */
 const EVENT_PALETTE = [
@@ -70,6 +93,7 @@ export function PairingsTab() {
   const [search, setSearch] = useState("");
   /** Set of row indices whose judge cell is expanded to show all names */
   const [expandedJudges, setExpandedJudges] = useState<Set<number>>(new Set());
+  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
 
   // Derive column order from scraped headers; fall back to first-row keys if the
   // server omitted headers (shouldn't happen, but guards against empty responses).
@@ -92,13 +116,14 @@ export function PairingsTab() {
    *  - Everything else: minmax(0, 1fr)
    */
   const gridTemplate = useMemo(() => {
-    if (!headers.length) return "28px 1fr";
+    if (!headers.length) return "24px 1fr";
     const cols = headers.map(h => {
-      if (isRoomCol(h))  return "auto";
-      if (isJudgeCol(h)) return "minmax(0, 2fr)";
+      if (isRoomCol(h))      return "minmax(56px, auto)";
+      if (isJudgeCol(h) || isPresidingCol(h)) return "minmax(0, 1.6fr)";
+      if (isMeasureCol(h))   return "minmax(0, 2fr)";
       return "minmax(0, 1fr)";
     });
-    return ["28px", ...cols].join(" ");
+    return ["24px", ...cols].join(" ");
   }, [headers]);
 
   const filteredPairings = useMemo(() => {
@@ -124,6 +149,30 @@ export function PairingsTab() {
           <p className="text-muted-foreground/55 text-[11px] mt-1.5 font-mono tracking-[0.1px]">
             {selectedTournament.name}
           </p>
+        )}
+        {selectedPairingsEvent && selectedPairingsRound && (
+          <div className="flex items-center gap-2 mt-3">
+            <span
+              className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-[6px] text-[10px] font-semibold text-white flex-shrink-0"
+              style={{
+                background: eventColor(
+                  pairingsEvents.findIndex((e: TabroomPairingsEvent) => e.id === selectedPairingsEvent.id)
+                ),
+                fontFamily: "'Fraunces', serif",
+              }}
+            >
+              {selectedPairingsEvent.name.charAt(0).toUpperCase()}
+            </span>
+            <span className="text-[12px] font-medium text-foreground/75 font-mono tracking-[-0.1px]">
+              {selectedPairingsEvent.name}
+            </span>
+            <svg className="w-[10px] h-[10px] text-muted-foreground/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+            <span className="text-[12px] font-medium text-primary/80 font-mono tracking-[-0.1px]">
+              {selectedPairingsRound.name}
+            </span>
+          </div>
         )}
       </div>
 
@@ -271,31 +320,31 @@ export function PairingsTab() {
           {!loading.pairings && pairings.length > 0 && (
             <div className="pr-animate-in">
               {/* Toolbar */}
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-4">
                 <div className="relative flex-1">
                   <svg className="absolute left-[9px] top-1/2 -translate-y-1/2 w-[13px] h-[13px] text-muted-foreground/35 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                   <input
                     type="text"
-                    placeholder="Search pairings"
+                    placeholder="Search pairings…"
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                     className="pr-search"
                   />
                 </div>
-                <button onClick={refreshPairings} disabled={loading.pairings} className="pr-icon-btn" title="Refresh">
+                {/* Count pill */}
+                <span className="flex-shrink-0 font-mono text-[10.5px] text-muted-foreground/55 tabular-nums px-2.5 py-1.5 rounded-[7px] bg-muted border border-border whitespace-nowrap">
+                  {filteredPairings.length === pairings.length
+                    ? `${pairings.length} match${pairings.length !== 1 ? "es" : ""}`
+                    : `${filteredPairings.length} / ${pairings.length}`}
+                </span>
+                <button onClick={refreshPairings} disabled={loading.pairings} className="pr-icon-btn flex-shrink-0" title="Refresh">
                   <svg className="w-[13px] h-[13px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                 </button>
               </div>
-
-              <p className="text-[10.5px] text-muted-foreground/50 mb-3 tabular-nums font-mono tracking-[0.1px]">
-                {filteredPairings.length === pairings.length
-                  ? `${pairings.length} pairing${pairings.length !== 1 ? "s" : ""}`
-                  : `${filteredPairings.length} of ${pairings.length}`}
-              </p>
 
               {filteredPairings.length === 0 ? (
                 <div className="pr-empty py-10">
@@ -303,9 +352,9 @@ export function PairingsTab() {
                 </div>
               ) : (
                 <div className="pr-table">
-                  {/* Header row */}
+                  {/* Column header band */}
                   <div className="pr-table-head" style={{ gridTemplateColumns: gridTemplate }}>
-                    <span /> {/* spacer for row-number column */}
+                    <span /> {/* spacer aligned with row-number column */}
                     {headers.map(h => (
                       <span key={h} className="pr-col-label">{formatHeader(h)}</span>
                     ))}
@@ -318,10 +367,10 @@ export function PairingsTab() {
                       className={`pr-table-row${i < filteredPairings.length - 1 ? " pr-table-row--sep" : ""}`}
                       style={{
                         gridTemplateColumns: gridTemplate,
-                        animationDelay: `${Math.min(i * 16, 200)}ms`,
+                        animationDelay: `${Math.min(i * 18, 220)}ms`,
                       } as React.CSSProperties}
                     >
-                      {/* Row number */}
+                      {/* Row number badge */}
                       <span className="pr-row-num">{i + 1}</span>
 
                       {/* Data cells */}
@@ -331,15 +380,15 @@ export function PairingsTab() {
                         /* ── Room ── */
                         if (isRoomCol(header)) {
                           return (
-                            <div key={j} className="pr-cell">
+                            <div key={j} className="pr-cell justify-center">
                               <span className="pr-room-pill">{raw || "—"}</span>
                             </div>
                           );
                         }
 
-                        /* ── Judge — collapsible overflow ── */
-                        if (isJudgeCol(header)) {
-                          const names      = splitNames(raw, true);
+                        /* ── Judge / Presiding — collapsible, "Lastname, Firstname" kept as-is ── */
+                        if (isJudgeCol(header) || isPresidingCol(header)) {
+                          const names      = splitJudgeNames(raw);
                           const isExpanded = expandedJudges.has(i);
                           const visible    = isExpanded ? names : names.slice(0, JUDGE_MAX_VISIBLE);
                           const overflow   = names.length - JUDGE_MAX_VISIBLE;
@@ -351,34 +400,64 @@ export function PairingsTab() {
                                 <span className="pr-empty-cell">—</span>
                               )}
                               {!isExpanded && overflow > 0 && (
-                                <button className="pr-chip pr-chip--more" onClick={e => {
+                                <button className="pr-chip--more" onClick={e => {
                                   e.stopPropagation();
                                   setExpandedJudges(prev => new Set([...prev, i]));
                                 }}>+{overflow} more</button>
                               )}
                               {isExpanded && overflow > 0 && (
-                                <button className="pr-chip pr-chip--more" onClick={e => {
+                                <button className="pr-chip--more" onClick={e => {
                                   e.stopPropagation();
                                   setExpandedJudges(prev => { const s = new Set(prev); s.delete(i); return s; });
-                                }}>less</button>
+                                }}>show less</button>
                               )}
                             </div>
                           );
                         }
 
-                        /* ── Team / Aff / Neg / generic ── */
-                        const names = splitNames(raw, false);
+                        /* ── Legislation / Docket — neutral label block ── */
+                        if (isMeasureCol(header)) {
+                          return (
+                            <div key={j} className="pr-cell">
+                              {raw
+                                ? <span className="pr-chip pr-chip--measure">{raw}</span>
+                                : <span className="pr-empty-cell">—</span>}
+                            </div>
+                          );
+                        }
+
+                        /* ── Team / Aff / Neg / generic (incl. Congress entries) ── */
+                        const allNames = splitTeamNames(raw);
+                        const entryKey = `${i}-${j}`;
+                        const isEntryExpanded = expandedEntries.has(entryKey);
+                        const entryOverflow  = allNames.length - ENTRY_MAX_VISIBLE;
+                        const visibleNames   = isEntryExpanded ? allNames : allNames.slice(0, ENTRY_MAX_VISIBLE);
+                        // Alternate green / amber by column position for visual variety
                         const chipCls = isAffCol(header)
                           ? "pr-chip--aff"
-                          : isEntryCol(header)
-                            ? entryColIndex(header) % 2 === 1 ? "pr-chip--aff" : "pr-chip--neg"
-                            : "pr-chip--neg";
+                          : isNegCol(header)
+                            ? "pr-chip--neg"
+                            : isEntryCol(header)
+                              ? entryColIndex(header) % 2 === 1 ? "pr-chip--aff" : "pr-chip--neg"
+                              : j % 2 === 0 ? "pr-chip--aff" : "pr-chip--neg";
                         return (
                           <div key={j} className="pr-cell">
-                            {names.length > 0 ? names.map((name, k) => (
+                            {visibleNames.length > 0 ? visibleNames.map((name, k) => (
                               <span key={k} className={`pr-chip ${chipCls}`}>{name}</span>
                             )) : (
                               <span className="pr-empty-cell">—</span>
+                            )}
+                            {!isEntryExpanded && entryOverflow > 0 && (
+                              <button className="pr-chip--more" onClick={e => {
+                                e.stopPropagation();
+                                setExpandedEntries(prev => new Set([...prev, entryKey]));
+                              }}>+{entryOverflow} more</button>
+                            )}
+                            {isEntryExpanded && entryOverflow > 0 && (
+                              <button className="pr-chip--more" onClick={e => {
+                                e.stopPropagation();
+                                setExpandedEntries(prev => { const s = new Set(prev); s.delete(entryKey); return s; });
+                              }}>show less</button>
                             )}
                           </div>
                         );

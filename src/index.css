@@ -323,39 +323,52 @@
   }
 
   /* ══════════════════════════════════════════════
-     THE PAIRINGS TABLE
+     THE PAIRINGS TABLE — unified card design
      ══════════════════════════════════════════════ */
 
-  /* Outer wrapper — white card with shadow */
+  /* One big card wrapping all rows */
   .pr-table {
-    @apply bg-card rounded-2xl overflow-hidden;
+    display: flex;
+    flex-direction: column;
+    background: hsl(var(--card));
+    border-radius: 16px;
     border: 1px solid hsl(var(--border));
+    overflow: hidden;
     box-shadow:
       0 1px 2px rgba(0,0,0,.03),
-      0 4px 16px rgba(0,0,0,.05);
+      0 6px 24px rgba(0,0,0,.07);
   }
 
-  /* Sticky header row */
+  /* Sticky column-header band */
   .pr-table-head {
     display: grid;
     gap: 10px;
     align-items: center;
-    padding: 8px 16px 7px;
-    background: hsl(var(--flow-surface2));
-    border-bottom: 1px solid hsl(var(--border));
+    padding: 8px 16px 8px 12px;
+    background: hsl(var(--muted) / .7);
+    border-bottom: 1.5px solid hsl(var(--border));
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    backdrop-filter: blur(8px);
   }
 
-  /* Data row */
+  /* Each data row — flush inside the card */
   .pr-table-row {
     display: grid;
     gap: 10px;
-    align-items: start;  /* top-align so tall cells don't stretch others */
-    padding: 11px 16px 13px;
-    animation: pr-rise .26s cubic-bezier(.22,1,.36,1) both;
-    transition: background .1s ease;
+    align-items: start;
+    padding: 13px 16px 13px 12px;
+    transition: background 0.12s ease, box-shadow 0.12s ease;
+    animation: pr-rise .3s cubic-bezier(.22,1,.36,1) both;
+  }
+  /* Subtle zebra striping */
+  .pr-table-row:nth-child(even) {
+    background: hsl(var(--muted) / .25);
   }
   .pr-table-row:hover {
-    background: hsl(var(--flow-accent-light) / .28);
+    background: hsl(var(--primary) / .05);
+    box-shadow: inset 3px 0 0 hsl(var(--primary) / .35);
   }
   .pr-table-row--sep {
     border-bottom: 1px solid hsl(var(--border) / .5);
@@ -365,7 +378,7 @@
   .pr-col-label {
     font-family: 'DM Mono', monospace;
     font-size: 8.5px;
-    font-weight: 500;
+    font-weight: 600;
     letter-spacing: 1px;
     text-transform: uppercase;
     color: hsl(var(--muted-foreground) / .5);
@@ -373,25 +386,34 @@
     white-space: nowrap;
   }
 
-  /* Row number */
+  /* Row number — small rounded counter */
   .pr-row-num {
     font-family: 'DM Mono', monospace;
-    font-size: 10.5px;
-    font-weight: 400;
-    color: hsl(var(--muted-foreground) / .3);
+    font-size: 9.5px;
+    font-weight: 500;
     line-height: 1;
-    padding-top: 3px;   /* optically align with chip top */
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
     user-select: none;
-    text-align: right;
-    tabular-nums: true;
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
+    border-radius: 6px;
+    color: hsl(var(--muted-foreground) / .55);
+    flex-shrink: 0;
   }
 
-  /* Cell — flex wrap container; chips flow naturally within the column width */
+  /* Cell — chips flow left-to-right and wrap for a compact layout */
   .pr-cell {
     display: flex;
+    flex-direction: row;
     flex-wrap: wrap;
-    gap: 5px;
+    gap: 4px 5px;
     align-items: flex-start;
+    align-content: flex-start;
     min-width: 0;
   }
 
@@ -399,90 +421,121 @@
   .pr-empty-cell {
     font-family: 'DM Mono', monospace;
     font-size: 11px;
-    color: hsl(var(--muted-foreground) / .25);
-    line-height: 1.6;
+    color: hsl(var(--muted-foreground) / .2);
+    line-height: 1.5;
   }
 
-  /* ── Room pill — outlined, auto-width ─────────── */
+  /* ── Room badge ───────────────────────────────── */
   .pr-room-pill {
     font-family: 'DM Mono', monospace;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 3px 10px;
-    border-radius: 100px;
+    padding: 4px 11px;
+    border-radius: 8px;
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 700;
     white-space: nowrap;
     user-select: none;
-    background: hsl(var(--primary) / .08);
+    align-self: center;
+    background: hsl(var(--primary) / .1);
     color: hsl(var(--primary));
-    border: 1px solid hsl(var(--primary) / .2);
-    letter-spacing: 0.1px;
+    border: 1.5px solid hsl(var(--primary) / .22);
+    letter-spacing: 0.4px;
   }
 
-  /* ── Name chips — pill-shaped, content-sized ─── */
+  /* ── Name blocks — each full name gets its own colored block ── */
   .pr-chip {
     font-family: 'DM Mono', monospace;
-    display: inline-flex;
-    align-items: center;
-    padding: 3px 9px;
-    border-radius: 100px;   /* full pill */
-    font-size: 10.5px;
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    font-size: 11px;
     font-weight: 500;
-    line-height: 1;
-    /* Each chip sizes to its text — no forced width */
-    white-space: nowrap;
-    cursor: default;
+    line-height: 1.3;
+    white-space: normal;
+    word-break: break-word;
     user-select: none;
     letter-spacing: -0.1px;
-    transition: background .1s ease;
+    padding: 3px 9px;
+    border-radius: 6px;
+    transition: filter 0.1s ease;
   }
+  .pr-chip:hover { filter: brightness(0.92); }
 
-  /* Aff — soft green */
+  /* Aff — vivid green block */
   .pr-chip--aff {
-    background: hsl(var(--flow-accent-light));
-    color: hsl(var(--primary));
-    border: 1px solid hsl(var(--primary) / .15);
+    background: hsl(150 52% 88%);
+    color: hsl(150 55% 24%);
+    border: 1.5px solid hsl(150 44% 72%);
   }
-  .pr-chip--aff:hover { background: hsl(153 38% 86%); }
+  .dark .pr-chip--aff {
+    background: hsl(150 32% 20%);
+    color: hsl(150 50% 72%);
+    border-color: hsl(150 32% 30%);
+  }
 
-  /* Neg — warm gold */
+  /* Neg — vivid amber block */
   .pr-chip--neg {
-    background: hsl(var(--flow-gold-light));
-    color: hsl(var(--flow-gold));
-    border: 1px solid hsl(var(--flow-gold) / .2);
+    background: hsl(38 92% 90%);
+    color: hsl(34 70% 32%);
+    border: 1.5px solid hsl(38 72% 72%);
   }
-  .pr-chip--neg:hover { background: hsl(42 72% 87%); }
+  .dark .pr-chip--neg {
+    background: hsl(36 40% 20%);
+    color: hsl(38 72% 72%);
+    border-color: hsl(36 40% 32%);
+  }
 
-  /* Judge — neutral parchment */
+  /* Judge — rich indigo/violet block, italic */
   .pr-chip--judge {
-    background: hsl(var(--muted));
-    color: hsl(var(--muted-foreground));
-    border: 1px solid hsl(var(--border));
+    background: hsl(245 52% 92%);
+    color: hsl(245 42% 38%);
+    border: 1.5px solid hsl(245 40% 78%);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: 0;
   }
-  .pr-chip--judge:hover {
-    background: hsl(var(--border));
-    color: hsl(var(--foreground) / .7);
+  .dark .pr-chip--judge {
+    background: hsl(245 28% 22%);
+    color: hsl(245 50% 76%);
+    border-color: hsl(245 28% 34%);
   }
 
-  /* "+N more" expand toggle */
+  /* Measure / Legislation / Docket — neutral slate label */
+  .pr-chip--measure {
+    background: hsl(220 18% 92%);
+    color: hsl(220 22% 36%);
+    border: 1.5px solid hsl(220 18% 78%);
+    font-style: normal;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+  .dark .pr-chip--measure {
+    background: hsl(220 16% 20%);
+    color: hsl(220 24% 72%);
+    border-color: hsl(220 16% 32%);
+  }
+
+  /* "+N more" expand link */
   .pr-chip--more {
     font-family: 'DM Mono', monospace;
     display: inline-flex;
     align-items: center;
-    padding: 3px 8px;
-    border-radius: 100px;
     font-size: 10px;
     font-weight: 500;
     line-height: 1;
     white-space: nowrap;
     cursor: pointer;
     user-select: none;
-    background: transparent;
-    color: hsl(var(--primary) / .65);
-    border: 1px dashed hsl(var(--primary) / .3);
+    background: none;
+    border: 1px dashed hsl(var(--primary) / .28);
+    padding: 3px 8px;
+    border-radius: 6px;
+    color: hsl(var(--primary) / .55);
     transition: all .13s ease;
+    align-self: flex-start;
+    margin-top: 1px;
   }
   .pr-chip--more:hover {
     background: hsl(var(--flow-accent-light));
@@ -490,5 +543,5 @@
     border-color: hsl(var(--primary) / .4);
     border-style: solid;
   }
-  .pr-chip--more:active { transform: scale(.93); }
+  .pr-chip--more:active { opacity: 0.65; transform: scale(0.96); }
 }
